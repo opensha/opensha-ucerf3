@@ -10,3 +10,4 @@ Scratch*.java
 src/scratch/UCERF3/data/scratch/
 U3_ETAS*
 .DS_Store
+.idea/
