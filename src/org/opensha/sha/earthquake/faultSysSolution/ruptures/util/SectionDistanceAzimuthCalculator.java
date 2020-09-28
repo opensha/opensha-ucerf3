@@ -123,7 +123,7 @@ public class SectionDistanceAzimuthCalculator {
 	}
 	
 	public ConcurrentMap<IDPairing, Double> getCachedAzimuths() {
-		return distCache.asMap();
+		return azCache.asMap();
 	}
 	
 	public void writeCacheFile(File cacheFile) throws IOException {
