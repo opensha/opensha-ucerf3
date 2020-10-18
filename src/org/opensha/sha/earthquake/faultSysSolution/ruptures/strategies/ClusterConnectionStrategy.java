@@ -39,6 +39,7 @@ public abstract class ClusterConnectionStrategy implements Named {
 
 	private List<? extends FaultSection> subSections;
 	private List<FaultSubsectionCluster> clusters;
+	private int clusterConnectionCount;
 	
 	protected transient HashSet<IDPairing> connectedParents;
 	protected transient boolean connectionsAdded = false;
@@ -110,7 +111,7 @@ public abstract class ClusterConnectionStrategy implements Named {
 	 * @return the number of connections added
 	 */
 	private int buildConnections() {
-		int count = 0;
+		clusterConnectionCount = 0;
 		connectedParents = new HashSet<>();
 		for (int c1=0; c1<clusters.size(); c1++) {
 			FaultSubsectionCluster cluster1 = clusters.get(c1);
@@ -123,13 +124,13 @@ public abstract class ClusterConnectionStrategy implements Named {
 						connectedParents.add(new IDPairing(cluster2.parentSectionID, cluster1.parentSectionID));
 						cluster1.addConnection(jump);
 						cluster2.addConnection(jump.reverse());
-						count++;
+						clusterConnectionCount++;
 					}
 				}
 			}
 		}
 		connectionsAdded = true;
-		return count;
+		return clusterConnectionCount;
 	}
 	
 	/**
@@ -302,6 +303,13 @@ public abstract class ClusterConnectionStrategy implements Named {
 			}
 		}
 		System.out.println("DONE");
+	}
+
+	/**
+	 * @return the the number of connections added
+	 */
+	public int getClusterConnectionCount() {
+		return clusterConnectionCount;
 	}
 
 }
