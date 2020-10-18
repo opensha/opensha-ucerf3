@@ -306,7 +306,7 @@ public abstract class ClusterConnectionStrategy implements Named {
 	}
 
 	/**
-	 * @return the clusterConnectionCount
+	 * @return the the number of connections added
 	 */
 	public int getClusterConnectionCount() {
 		return clusterConnectionCount;
