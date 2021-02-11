@@ -421,9 +421,6 @@ public class ETAS_Simulator {
 		info_fr.write("\nMaking ETAS_PrimaryEventSampler took "+(System.currentTimeMillis()-st)/60000+ " min");
 //		info_fr.flush();
 		
-		
-		
-		
 		// Make list of primary aftershocks for given list of obs quakes 
 		// (filling in origin time ID, parentID, and location on parent that does triggering, with the rest to be filled in later)
 		if (D) System.out.println("Making primary aftershocks from input obsEqkRuptureList, size = "+obsEqkRuptureList.size());
@@ -1485,8 +1482,8 @@ public class ETAS_Simulator {
 //		TestScenario scenario = TestScenario.PARKFIELD;
 		TestScenario scenario = null;
 		
-		String simulationName = "TestDebug";	// leave blank if scenario is not null
-		String incrementString = "_2"; // set as "-1", or "_2" to save previous runs
+		String simulationName = "Test100yrSim";	// leave blank if scenario is not null
+		String incrementString = "_1"; // set as "-1", or "_2" to save previous runs
 		
 		Long seed = null;
 //		Long seed = 890841985480217717l;
@@ -1498,7 +1495,7 @@ public class ETAS_Simulator {
 //		long startTimeMillis = 1270420841000l; // El Mayor
 
 		// set the duration
-		double durationYears=500;
+		double durationYears=100;
 //		double durationYears=7.0/365.25;
 		
 		ETAS_ParameterList params = new ETAS_ParameterList();
@@ -1508,8 +1505,8 @@ public class ETAS_Simulator {
 //		params.setTotalRateScaleFactor(1.0);
 //		params.setU3ETAS_ProbModel(U3ETAS_ProbabilityModelOptions.NO_ERT);
 		params.set_kCOV(1.5);
-//		params.setTotalRateScaleFactor(1.14);
-		params.setTotalRateScaleFactor(1.4);
+		params.setTotalRateScaleFactor(1.14);
+//		params.setTotalRateScaleFactor(1.4);
 		params.setU3ETAS_ProbModel(U3ETAS_ProbabilityModelOptions.FULL_TD);
 		params.setStatewideCompletenessModel(U3_EqkCatalogStatewideCompleteness.RELAXED);
 		
@@ -1593,9 +1590,21 @@ public class ETAS_Simulator {
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		
+
 		configAndRunSimulation();
 //		System.exit(0);
+
+		// from one of Kevin's config files:
+//		String string[] = new String[3];
+//		string[0] = "--threads";
+//		string[1] = "1";
+//		string[2] = "/Users/field/Field_Other/CEA_WGCEP/UCERF3/DeclusteringAnalysis/config_single.json";
+//		try {
+//			ETAS_Launcher.main(string);
+//		} catch (IOException e) {
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+//		}
 		
 		
 		// *********** OLD RUNS (pre Oct 2018) FROM PREVIOUS CODE VERSION BELOW (before consolidation into configAndRunSimulation()) ***********

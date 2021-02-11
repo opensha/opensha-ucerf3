@@ -4,10 +4,15 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Stroke;
 import java.awt.geom.Point2D;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -64,6 +69,7 @@ import org.opensha.commons.util.ClassUtils;
 import org.opensha.commons.util.ComparablePairing;
 import org.opensha.commons.util.DataUtils.MinMaxAveTracker;
 import org.opensha.commons.util.ExceptionUtils;
+import org.opensha.commons.util.FileNameComparator;
 import org.opensha.commons.util.MarkdownUtils;
 import org.opensha.commons.util.MarkdownUtils.TableBuilder;
 import org.opensha.commons.util.cpt.CPT;
@@ -80,6 +86,7 @@ import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.Ju
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.JumpAzimuthChangeFilter.AzimuthCalc;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.JumpDistFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.MultiDirectionalPlausibilityFilter;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.NetRuptureCoulombFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.SplayCountFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.CumulativeProbabilityFilter.*;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.ClusterConnectionStrategy;
@@ -87,6 +94,8 @@ import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.DistCutof
 import org.opensha.sha.faultSurface.FaultSection;
 import org.opensha.sha.faultSurface.RuptureSurface;
 import org.opensha.sha.faultSurface.utils.GriddedSurfaceUtils;
+import org.opensha.sha.simulators.stiffness.AggregatedStiffnessCache;
+import org.opensha.sha.simulators.stiffness.AggregatedStiffnessCalculator;
 import org.opensha.sha.simulators.stiffness.SubSectStiffnessCalculator;
 import org.opensha.sha.simulators.stiffness.SubSectStiffnessCalculator.StiffnessType;
 import org.opensha.sha.simulators.utils.RupturePlotGenerator;
@@ -96,6 +105,8 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Table;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import scratch.UCERF3.FaultSystemRupSet;
 import scratch.UCERF3.FaultSystemSolution;
@@ -112,49 +123,87 @@ public class RupSetDiagnosticsPageGen {
 			// special case to make things easier for Kevin in eclipse
 			
 			File rupSetsDir = new File("/home/kevin/OpenSHA/UCERF4/rup_sets");
-
-//			String inputName = "5% Sect Fract Increase";
-//			File inputFile = new File(rupSetsDir, "fm3_1_cmlAz_cffClusterPathPositive_sectFractPerm0.05.zip");
-//			String inputName = "10% Sect Fract Increase";
-//			File inputFile = new File(rupSetsDir, "fm3_1_cmlAz_cffClusterPathPositive_sectFractPerm0.1.zip");
-//			String inputName = "15% Sect Fract Increase";
-//			File inputFile = new File(rupSetsDir, "fm3_1_cmlAz_cffClusterPathPositive_sectFractPerm0.15.zip");
-//			String inputName = "CmlAz, CFF Cluster Path Positive";
-//			File inputFile = new File(rupSetsDir, "fm3_1_cmlAz_cffClusterPathPositive.zip");
-//			String inputName = "UCERF3, 10% Sect Fract Increase";
-//			File inputFile = new File(rupSetsDir, "fm3_1_ucerf3_sectFractPerm0.1.zip");
-//			String inputName = "10km Jump Dist";
-//			File inputFile = new File(rupSetsDir, "fm3_1_10km_cmlAz_cffClusterPathPositive.zip");
-//			float probThresh = 0.005f;
-//			String inputName = "Cumulative W&B 16-17 P>"+probThresh;
-//			File inputFile = new File(rupSetsDir, "fm3_1_cmlProb"+probThresh+"-BW16-17_cffClusterPathPositive.zip");
-//			String inputName = "10km, Cumulative W&B 16-17 P>0.005";
-//			File inputFile = new File(rupSetsDir, "fm3_1_10km_cmlProb0.005-BW16-17_cffClusterPathPositive.zip");
 			
-//			String inputName = "Penalty5: Az60, Jump 1, Rake45";
-////			File inputFile = new File(rupSetsDir, "fm3_1_cmlPen5_az60_jump0.1km_rake45_cffClusterPathPositive.zip");
-//			File inputFile = new File(rupSetsDir, "fm3_1_ucerf3_cmlPen5_jump1km_rake45.zip");
+//			writeIndex(new File("/data/kevin/markdown/rupture-sets/"
+////					+ "fm3_1_adapt5_10km_min2_cff3_4_IntsPos_cffProb0.01NegRelBest_cffJumpPatchNetFract0.5_cffSectFav15PathPos"));
+//					+ "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos"));
+//			System.exit(0);
 			
-			String inputName = "RSQSim 4983, SectArea=0.5";
-			File inputFile = new File(rupSetsDir, "rsqsim_4983_stitched_m6.5_skip65000_sectArea0.5.zip");
+//			String inputName = "RSQSim 4983, SectArea=0.5";
+//			File inputFile = new File(rupSetsDir, "rsqsim_4983_stitched_m6.5_skip65000_sectArea0.5.zip");
+			
+//			String inputName = "CmlAz Only";
+//			File inputFile = new File(rupSetsDir, "fm3_1_cmlAz.zip");
 			
 //			String inputName = "UCERF3";
 //			File inputFile = new File(rupSetsDir, "fm3_1_ucerf3.zip");
 			
-			String compName = "UCERF3";
-			File compareFile = new File(rupSetsDir, "fm3_1_ucerf3.zip");
-//			String compName = null;
-//			File compareFile = null;
-//			String compName = "CmlAz, CFF Cluster Path Positive";
-//			File compareFile = new File(rupSetsDir, "fm3_1_cmlAz_cffClusterPathPositive.zip");
-//			String compName = "CmlAz Only";
-//			File compareFile = new File(rupSetsDir, "fm3_1_cmlAz.zip");
-//			String compName = "CmlAz, CFF Cluster Positive";
-//			File compareFile = new File(rupSetsDir, "fm3_1_cmlAz_cffClusterPositive.zip");
-//			File altPlausibilityCompareFile = new File(rupSetsDir, "new_coulomb_filters.json");
-//			File altPlausibilityCompareFile = new File(rupSetsDir, "new_cumulative_prob_filters.json");
-			File altPlausibilityCompareFile = new File(rupSetsDir, "alt_filters.json");
+			String inputName = "Adaptive 5-10km (SMax=1), Slip P>0.01 (@Incr), CFF 3/4 Ints >0, CFF Comb Paths: [Sect Fav. (15km), P>0.01, RPatch 1/2 >0]";
+			File inputFile = new File(rupSetsDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+			// these are relative to fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip
+			File relDir = new File(rupSetsDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos_comp");
+			boolean skipPlausibility = true;
+			File altPlausibilityCompareFile = null;
+//			String compName = "Jump: Adaptive 5-15km (SMax=1)";				// generated, plotted REDO: build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_15km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "Jump: Adaptive 5-10km (CMax=2)";				// generated, plotted REDO: build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_cMax2_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "Jump: 10km";									// generated, plotted REDO: build?	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_10km_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+			String compName = "Jump: 10km, 5% Fract Increase";				// generated, plotted
+			File compareFile = new File(relDir, "fm3_1_10km_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos_sectFractPerm0.05.zip");
+//			String compName = "Jump: 5km";									// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "Separate CFF Paths";							// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_cffPathP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "5% Fract Increase";							// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos_sectFractPerm0.05.zip");
+//			String compName = "No Slip Rate Prob";							// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "No CFF 3/4 Ints";							// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "No CFF Path RPatch";							// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb2Paths_cffP0.01_cffSPathFav15.zip");
+//			String compName = "No CFF Sect Path";							// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb2Paths_cffP0.01_cffCPathRPatchHalfPos.zip");
+//			String compName = "No CFF Prob";								// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb2Paths_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "CmlAz, CFF Comb Paths: [Sect,RPatch]";		// generated, plotted REDO build? 	done	plot?	done
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_cmlAz_comb2Paths_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "No Self-Stiffness Cap";						// generated, plotted
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos_cap0x.zip");
+//			String compName = "Add CmlRake<=180";							// generated, plotted
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_cmlRake_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			String compName = "CmlAz, CmlRake, CFF Comb Paths: [Sect,RPatch]";// generated, plotted
+//			File compareFile = new File(relDir, "fm3_1_adapt5_10km_sMax1_cmlAz_cmlRake_comb2Paths_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+			
+			// UCERF3 variants
+//			boolean skipPlausibility = false;
+////			String compName = "UCERF3 10km, No Coulomb";
+////			File compareFile = new File(rupSetsDir, "fm3_1_ucerf3_10km_noCoulomb.zip");
+////			File altPlausibilityCompareFile = null;
+//			String compName = "UCERF3 Adaptive 5-10km (SMax=1), No Coulomb";
+//			File compareFile = new File(rupSetsDir, "fm3_1_ucerf3_adapt5_10km_sMax1_noCoulomb.zip");
 //			File altPlausibilityCompareFile = null;
+////			String compName = "UCERF3 Coulomb Reproduce";
+////			File compareFile = new File(rupSetsDir, "fm3_1_ucerf3_5km_cffReproduce.zip");
+////			File altPlausibilityCompareFile = null;
+////			String compName = "UCERF3 10km, CFF Falback";
+////			File compareFile = new File(rupSetsDir, "fm3_1_ucerf3_10km_cffFallback.zip");
+////			File altPlausibilityCompareFile = null;
+			
+			
+			// common ones
+//			boolean skipPlausibility = false;
+////			String compName = "UCERF3";
+////			File compareFile = new File(rupSetsDir, "fm3_1_ucerf3.zip");
+////			File altPlausibilityCompareFile = new File(rupSetsDir, "u3_az_cff_cmls.json");
+////			String compName = null;
+////			File compareFile = null;
+////			File altPlausibilityCompareFile = new File(rupSetsDir, "alt_filters.json");
+//			String compName = "Adaptive 5-10km (SMax=1), Slip P>0.01 (@Incr), CFF 3/4 Ints >0, CFF Comb Paths: [Sect Fav. (15km), P>0.01, RPatch 1/2 >0]";
+//			File compareFile = new File(rupSetsDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos.zip");
+//			File altPlausibilityCompareFile = new File(rupSetsDir, "cur_pref_filters.json");
 
 			List<String> argz = new ArrayList<>();
 			argz.add("--reports-dir"); argz.add("/home/kevin/markdown/rupture-sets");
@@ -173,6 +222,8 @@ public class RupSetDiagnosticsPageGen {
 			if (altPlausibilityCompareFile != null) {
 				argz.add("--alt-plausibility"); argz.add(altPlausibilityCompareFile.getAbsolutePath());
 			}
+			if (skipPlausibility)
+				argz.add("--skip-plausibility");
 			args = argz.toArray(new String[0]);
 		}
 		
@@ -216,6 +267,7 @@ public class RupSetDiagnosticsPageGen {
 		}
 		
 		File outputDir;
+		File indexDir = null;
 		if (cmd.hasOption("output-dir")) {
 			Preconditions.checkArgument(!cmd.hasOption("reports-dir"),
 					"Can't supply both --output-dir and --reports-dir");
@@ -229,15 +281,17 @@ public class RupSetDiagnosticsPageGen {
 			Preconditions.checkState(reportsDir.exists() || reportsDir.mkdir(),
 					"Reports dir doesn't exist and could not be created: %s", reportsDir.getAbsolutePath());
 			
-			outputDir = new File(reportsDir, inputFile.getName().replaceAll(".zip", ""));
-			Preconditions.checkState(outputDir.exists() || outputDir.mkdir());
+			indexDir = new File(reportsDir, inputFile.getName().replaceAll(".zip", ""));
+			Preconditions.checkState(indexDir.exists() || indexDir.mkdir());
 			
 			if (compareFile == null)
-				outputDir = new File(outputDir, "standalone");
+				outputDir = new File(indexDir, "standalone");
 			else
-				outputDir = new File(outputDir, "comp_"+compareFile.getName().replaceAll(".zip", ""));
+				outputDir = new File(indexDir, "comp_"+compareFile.getName().replaceAll(".zip", ""));
 			Preconditions.checkState(outputDir.exists() || outputDir.mkdir());
 		}
+		
+		boolean skipPlausibility = cmd.hasOption("skip-plausibility");
 		
 		File altPlausibilityCompareFile = null;
 		if (cmd.hasOption("alt-plausibility")) {
@@ -271,6 +325,8 @@ public class RupSetDiagnosticsPageGen {
 		FaultSystemSolution compSol = null;
 		PlausibilityConfiguration compConfig = null;
 		
+		DiagnosticSummary summary = new DiagnosticSummary();
+		
 		System.out.println("Loading input");
 		if (FaultSystemIO.isSolution(inputFile)) {
 			System.out.println("Input is a solution");
@@ -280,6 +336,7 @@ public class RupSetDiagnosticsPageGen {
 			inputRupSet = FaultSystemIO.loadRupSet(inputFile);
 		}
 		inputConfig = inputRupSet.getPlausibilityConfiguration();
+		summary.primaryName = inputName;
 		List<? extends FaultSection> subSects = inputRupSet.getFaultSectionDataList();
 		
 		SectionDistanceAzimuthCalculator distAzCalc;
@@ -300,8 +357,9 @@ public class RupSetDiagnosticsPageGen {
 				inputRupSet.setPlausibilityConfiguration(inputConfig);
 			}
 		}
+		summary.primaryMeta = new RupSetMetadata(inputRupSet, inputSol);
 		// check load coulomb
-		HashMap<String, List<SubSectStiffnessCalculator>> loadedCoulombCaches = new HashMap<>();
+		HashMap<String, List<AggregatedStiffnessCache>> loadedCoulombCaches = new HashMap<>();
 		if (inputConfig != null && coulombCacheDir != null)
 			checkLoadCoulombCache(inputConfig.getFilters(), coulombCacheDir, loadedCoulombCaches);
 		RuptureConnectionSearch inputSearch = new RuptureConnectionSearch(
@@ -366,12 +424,15 @@ public class RupSetDiagnosticsPageGen {
 			compUniques = new HashSet<>();
 			for (ClusterRupture rup : compRups)
 				compUniques.add(rup.unique);
+			
+			summary.compName = compName;
+			summary.compMeta = new RupSetMetadata(compRupSet, compSol);
 		}
 		
 		List<String> lines = new ArrayList<>();
 		lines.add("# Rupture Set Diagnostics: "+inputName);
 		lines.add("");
-		lines.addAll(getBasicLines(inputRupSet));
+		lines.addAll(getBasicLines(inputRupSet, inputRups));
 		lines.add("");
 		int tocIndex = lines.size();
 		String topLink = "*[(top)](#table-of-contents)*";
@@ -413,7 +474,7 @@ public class RupSetDiagnosticsPageGen {
 			lines.add(topLink); lines.add("");
 			lines.add("Will include comparisons against: "+compName);
 			lines.add("");
-			lines.addAll(getBasicLines(compRupSet));
+			lines.addAll(getBasicLines(compRupSet, compRups));
 			lines.add("");
 			
 			lines.add("### Rupture Set Overlap");
@@ -470,6 +531,13 @@ public class RupSetDiagnosticsPageGen {
 				lines.addAll(getPlausibilityLines(compConfig, compJumps));
 				lines.add("");
 			}
+			
+			summary.primaryMeta.uniqueRupCount = numInputUnique;
+			if (inputSol != null)
+				summary.primaryMeta.uniqueRupRate = rateInputUnique;
+			summary.compMeta.uniqueRupCount = numCompUnique;
+			if (compSol != null)
+				summary.compMeta.uniqueRupRate = rateCompUnique;
 		}
 		
 		// length and magnitude distributions
@@ -493,11 +561,13 @@ public class RupSetDiagnosticsPageGen {
 			HistScalarValues inputScalars = new HistScalarValues(scalar, inputRupSet, inputSol,
 					inputRups, distAzCalc);
 			inputScalarVals.add(inputScalars);
+			summary.primaryMeta.scalars.add(new ScalarRange(inputScalars));
 			HistScalarValues compScalars = null;
 			if (compRupSet != null) {
 				table.addLine(inputName, compName);
 				compScalars = new HistScalarValues(scalar, compRupSet, compSol,
 						compRups, distAzCalc);
+				summary.compMeta.scalars.add(new ScalarRange(compScalars));
 				compScalarVals.add(compScalars);
 			}
 			plotRuptureHistograms(resourcesDir, "hist_"+scalar.name(), table, inputScalars,
@@ -581,7 +651,7 @@ public class RupSetDiagnosticsPageGen {
 			lines.add("Plausibility Comparisons");
 			lines.add(topLink); lines.add("");
 			
-			if (compConfig != null) {
+			if (compConfig != null && !skipPlausibility) {
 				lines.add("## Comparisons with "+compName+" filters");
 				lines.add(topLink); lines.add("");
 				
@@ -598,7 +668,7 @@ public class RupSetDiagnosticsPageGen {
 						"Comparison with "+compName+" Filters");
 				lines.add("![plot](resources/"+plot.getName()+")");
 				lines.add("");
-				lines.addAll(getRupSetPlausibilityTable(result).build());
+				lines.addAll(getRupSetPlausibilityTable(result, compName).build());
 				lines.add("");
 				lines.add("**Magnitude-filtered comparisons**");
 				lines.add("");
@@ -610,7 +680,7 @@ public class RupSetDiagnosticsPageGen {
 				lines.add("");
 			}
 			
-			if (compRups != null && inputConfig != null) {
+			if (compRups != null && inputConfig != null && !skipPlausibility) {
 				lines.add("## "+compName+" comparisons with new filters");
 				lines.add(topLink); lines.add("");
 				
@@ -627,7 +697,7 @@ public class RupSetDiagnosticsPageGen {
 						"Comparison with "+inputName+" Filters");
 				lines.add("![plot](resources/"+plot.getName()+")");
 				lines.add("");
-				lines.addAll(getRupSetPlausibilityTable(result).build());
+				lines.addAll(getRupSetPlausibilityTable(result, compName+" against").build());
 				lines.add("");
 				lines.add("**Magnitude-filtered comparisons**");
 				lines.add("");
@@ -639,17 +709,25 @@ public class RupSetDiagnosticsPageGen {
 				lines.add("");
 			}
 			
-			if (altPlausibilityCompareFile != null) {
+			if (!skipPlausibility && altPlausibilityCompareFile != null) {
 				lines.add("## Comparisons with Alternative filters");
 				lines.add(topLink); lines.add("");
 				
 				// load in alternatives
 				ClusterConnectionStrategy inputConnStrat = null;
-				if (inputConfig == null)
+				if (inputConfig == null) {
+					double maxDist = 0d;
+					
+					for (Jump jump : inputJumps.keySet())
+						maxDist = Math.max(maxDist, jump.distance);
+					maxDist = Math.ceil(maxDist);
+					System.out.println("WARNING: primary rupture set doesn't have a connection strategy, using actual "
+							+ "maxDist="+(int)maxDist+" km for alt plausibility filters which use connections.");
 					inputConnStrat = new DistCutoffClosestSectClusterConnectionStrategy(
-							subSects, distAzCalc, 100d);
-				else
+							subSects, distAzCalc, maxDist);
+				} else {
 					inputConnStrat = inputConfig.getConnectionStrategy();
+				}
 				List<PlausibilityFilter> filters = PlausibilityConfiguration.readFiltersJSON(
 						altPlausibilityCompareFile, inputConnStrat, distAzCalc);
 				if (coulombCacheDir != null)
@@ -660,7 +738,7 @@ public class RupSetDiagnosticsPageGen {
 						"Comparison with Alternative Filters");
 				lines.add("![plot](resources/"+plot.getName()+")");
 				lines.add("");
-				lines.addAll(getRupSetPlausibilityTable(result).build());
+				lines.addAll(getRupSetPlausibilityTable(result, "Alternative").build());
 				lines.add("");
 				lines.add("**Magnitude-filtered comparisons**");
 				lines.add("");
@@ -728,6 +806,8 @@ public class RupSetDiagnosticsPageGen {
 		lines.add("## Fault Section Connections");
 		lines.add(topLink); lines.add("");
 		
+		summary.primaryMeta.connCount = inputJumps.size();
+		
 		if (compRups != null) {
 			List<Set<Jump>> connectionsList = new ArrayList<>();
 			List<Color> connectedColors = new ArrayList<>();
@@ -758,6 +838,10 @@ public class RupSetDiagnosticsPageGen {
 			lines.add("### Jump Overlaps");
 			lines.add(topLink); lines.add("");
 			
+			summary.compMeta.connCount = compJumps.size();
+			summary.primaryMeta.uniqueConnCount = inputUniqueJumps.size();
+			summary.compMeta.uniqueConnCount = compUniqueJumps.size();
+			
 			TableBuilder table = MarkdownUtils.tableBuilder();
 			table.addLine("", inputName, compName);
 			table.addLine("**Total Count**", inputJumps.size(), compJumps.size());
@@ -776,6 +860,7 @@ public class RupSetDiagnosticsPageGen {
 					double rateInputUnique = 0d;
 					for (Double rate : inputUniqueJumps.values())
 						rateInputUnique += rate;
+					summary.primaryMeta.uniqueConnRate = rateInputUnique;
 					table.addColumn((float)rateInputUnique+" ("+percentDF.format(
 							rateInputUnique/inputSol.getTotalRateForAllFaultSystemRups())+")");
 				}
@@ -785,6 +870,7 @@ public class RupSetDiagnosticsPageGen {
 					double rateCompUnique = 0d;
 					for (Double rate : compUniqueJumps.values())
 						rateCompUnique += rate;
+					summary.compMeta.uniqueConnRate = rateCompUnique;
 					table.addColumn((float)rateCompUnique+" ("+percentDF.format(
 							rateCompUnique/compSol.getTotalRateForAllFaultSystemRups())+")");
 				}
@@ -1106,6 +1192,15 @@ public class RupSetDiagnosticsPageGen {
 		// write markdown
 		MarkdownUtils.writeReadmeAndHTML(lines, outputDir);
 		
+		System.out.println("Writing JSON metadata");
+		
+		writeMetadataJSON(summary, new File(outputDir, "metadata.json"));
+		
+		if (indexDir != null) {
+			System.out.println("Writing index to "+indexDir.getAbsolutePath());
+			writeIndex(indexDir);
+		}
+		
 		if (distAzCache != null && (numAzCached < distAzCalc.getNumCachedAzimuths()
 				|| numDistCached < distAzCalc.getNumCachedDistances())) {
 			System.out.println("Writing dist/az cache to "+distAzCache.getAbsolutePath());
@@ -1154,6 +1249,11 @@ public class RupSetDiagnosticsPageGen {
 		altPlausibilityOption.setRequired(false);
 		ops.addOption(altPlausibilityOption);
 		
+		Option skipPlausibilityOption = new Option("sp", "skip-plausibility", false,
+				"Flag to skip plausibility calculations");
+		skipPlausibilityOption.setRequired(false);
+		ops.addOption(skipPlausibilityOption);
+		
 		Option distAzCacheOption = new Option("dac", "dist-az-cache", true,
 				"Path to a distance/azimuth cache file to speed up plausibility comparisons");
 		distAzCacheOption.setRequired(false);
@@ -1189,9 +1289,10 @@ public class RupSetDiagnosticsPageGen {
 	private static final Color COMP_COLOR = Color.BLUE;
 	private static final Color COMMON_COLOR = Color.GREEN;
 	private static DecimalFormat twoDigits = new DecimalFormat("0.00");
-	private static DecimalFormat thousands = new DecimalFormat("0");
+	private static DecimalFormat countDF = new DecimalFormat("#");
 	static {
-		thousands.getDecimalFormatSymbols().setGroupingSeparator(',');
+		countDF.setGroupingUsed(true);
+		countDF.setGroupingSize(3);
 	}
 	
 	private static double getLength(FaultSystemRupSet rupSet, int r) {
@@ -1206,7 +1307,7 @@ public class RupSetDiagnosticsPageGen {
 		return lengths[r]*1e-3; // m => km
 	}
 	
-	private static List<String> getBasicLines(FaultSystemRupSet rupSet) {
+	private static List<String> getBasicLines(FaultSystemRupSet rupSet, List<ClusterRupture> clusterRups) {
 		List<String> lines = new ArrayList<>();
 		MinMaxAveTracker magTrack = new MinMaxAveTracker();
 		MinMaxAveTracker lenTrack = new MinMaxAveTracker();
@@ -1216,7 +1317,13 @@ public class RupSetDiagnosticsPageGen {
 			lenTrack.addValue(getLength(rupSet, r));
 			sectsTrack.addValue(rupSet.getSectionsIndicesForRup(r).size());
 		}
-		lines.add("* Num ruptures: "+thousands.format(rupSet.getNumRuptures()));
+		lines.add("* Num ruptures: "+countDF.format(rupSet.getNumRuptures()));
+		int numSingleStrand = 0;
+		for (ClusterRupture rup : clusterRups)
+			if (rup.singleStrand)
+				numSingleStrand++;
+		lines.add("* Num single-strand ruptures: "+countDF.format(numSingleStrand)+" ("
+				+new DecimalFormat("0.#%").format((double)numSingleStrand/(double)clusterRups.size())+")");
 		lines.add("* Rupture mag range: ["+twoDigits.format(magTrack.getMin())
 		+","+twoDigits.format(magTrack.getMax())+"]");
 		lines.add("* Rupture length range: ["+twoDigits.format(lenTrack.getMin())
@@ -1297,23 +1404,24 @@ public class RupSetDiagnosticsPageGen {
 	}
 	
 	private static void checkLoadCoulombCache(List<PlausibilityFilter> filters,
-			File cacheDir, Map<String, List<SubSectStiffnessCalculator>> loadedCoulombCaches)
+			File cacheDir, Map<String, List<AggregatedStiffnessCache>> loadedCoulombCaches)
 					throws IOException {
 		for (PlausibilityFilter filter : filters) {
 			if (filter instanceof ScalarCoulombPlausibilityFilter) {
-				SubSectStiffnessCalculator stiffnessCalc =
-						((ScalarCoulombPlausibilityFilter)filter).getStiffnessCalc();
-				String cacheName = stiffnessCalc.getCacheFileName(StiffnessType.CFF);
+				AggregatedStiffnessCalculator agg = ((ScalarCoulombPlausibilityFilter)filter).getAggregator();
+				SubSectStiffnessCalculator stiffnessCalc = agg.getCalc();
+				AggregatedStiffnessCache cache = stiffnessCalc.getAggregationCache(agg.getType());
+				String cacheName = cache.getCacheFileName();
 				File cacheFile = new File(cacheDir, cacheName);
 				if (!cacheFile.exists())
 					continue;
 				if (loadedCoulombCaches.containsKey(cacheName)) {
 					// copy the cache over to this one, if not already set
-					List<SubSectStiffnessCalculator> calcs = loadedCoulombCaches.get(cacheName);
+					List<AggregatedStiffnessCache> caches = loadedCoulombCaches.get(cacheName);
 					// it might be shared, so make sure we haven't already loaded that one
 					boolean found = false;
-					for (SubSectStiffnessCalculator oCalc : calcs) {
-						if (oCalc == stiffnessCalc) {
+					for (AggregatedStiffnessCache oCache : caches) {
+						if (oCache == cache) {
 							found = true;
 							// it's already been populated
 							break;
@@ -1321,15 +1429,15 @@ public class RupSetDiagnosticsPageGen {
 					}
 					if (!found) {
 						// need to actually populate this one
-						stiffnessCalc.copyCacheFrom(calcs.get(0));
-						calcs.add(stiffnessCalc);
+						cache.copyCacheFrom(cache);
+						caches.add(cache);
 					}
 				}
 				if (!loadedCoulombCaches.containsKey(cacheName) && cacheFile.exists()) {
-					stiffnessCalc.loadCacheFile(cacheFile, StiffnessType.CFF);
-					List<SubSectStiffnessCalculator> calcs = new ArrayList<>();
-					calcs.add(stiffnessCalc);
-					loadedCoulombCaches.put(cacheName, calcs);
+					cache.loadCacheFile(cacheFile);
+					List<AggregatedStiffnessCache> caches = new ArrayList<>();
+					caches.add(cache);
+					loadedCoulombCaches.put(cacheName, caches);
 				}
 			}
 		}
@@ -1631,10 +1739,12 @@ public class RupSetDiagnosticsPageGen {
 			@Override
 			public double getValue(int index, FaultSystemRupSet rupSet, ClusterRupture rup,
 					SectionDistanceAzimuthCalculator distAzCalc) {
-				synchronized (this) {
-					if (filter == null)
-						filter = new CumulativeProbabilityFilter(1e-10f,
-								CumulativeProbabilityFilter.getPrefferedBWCalcs(distAzCalc));
+				if (filter == null) {
+					synchronized (this) {
+						if (filter == null)
+							filter = new CumulativeProbabilityFilter(1e-10f,
+									CumulativeProbabilityFilter.getPrefferedBWCalcs(distAzCalc));
+					}
 				}
 				return filter.getValue(rup).doubleValue();
 			}
@@ -2032,7 +2142,11 @@ public class RupSetDiagnosticsPageGen {
 		}
 		
 		List<Future<PlausibilityCalcCallable>> futures = new ArrayList<>();
-		ExecutorService exec = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+		int threads = Runtime.getRuntime().availableProcessors();
+		if (threads > 8)
+			threads -= 2;
+		threads = Integer.max(1, Integer.min(31, threads));
+		ExecutorService exec = Executors.newFixedThreadPool(threads);
 		for (int r=0; r<rups.size(); r++) {
 			ClusterRupture rupture = rups.get(r);
 			futures.add(exec.submit(new PlausibilityCalcCallable(newFilters, rupture, r)));
@@ -2227,7 +2341,8 @@ public class RupSetDiagnosticsPageGen {
 	}
 	
 	private static Color[] FILTER_COLORS = { Color.DARK_GRAY, new Color(102, 51, 0), Color.RED, Color.BLUE,
-			Color.GREEN.darker(), Color.CYAN, Color.PINK, Color.ORANGE.darker(), Color.MAGENTA };
+//			Color.GREEN.darker(), Color.CYAN, Color.PINK, Color.ORANGE.darker(), Color.MAGENTA };
+			Color.GREEN.darker(), Color.CYAN, Color.PINK };
 	
 	public static File plotRupSetPlausibility(RupSetPlausibilityResult result, File outputDir,
 			String prefix, String title) throws IOException {
@@ -2245,74 +2360,91 @@ public class RupSetDiagnosticsPageGen {
 		Font font = new Font(Font.SANS_SERIF, Font.BOLD, 20);
 		Font allFont = new Font(Font.SANS_SERIF, Font.BOLD, 26);
 		
-		List<PlotElement> funcs = new ArrayList<>();
-		List<PlotCurveCharacterstics> chars = new ArrayList<>();
-		
-		funcs.add(new DefaultXY_DataSet(new double[] {0d, 1d}, new double[] {0d, 0d}));
-		chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, 0f, Color.WHITE));
-		
-		List<XYAnnotation> anns = new ArrayList<>();
-		
 		double topRowY = maxY*0.95;
 		double secondRowY = maxY*0.91;
 		double thirdRowY = maxY*0.85;
 		
-		for (int i=0; i<result.filters.size(); i++) {
-			double x = i*dx + 0.5*dx;
-			double percentFailed = 100d*result.failCounts[i]/result.numRuptures;
-			double percentOnly = 100d*result.onlyFailCounts[i]/result.numRuptures;
-			double percentErred = 100d*result.erredCounts[i]/result.numRuptures;
+		int numPlots = 1 + (result.filters.size() / FILTER_COLORS.length);
+		int filtersEach = (int)Math.ceil((double)result.filters.size()/(double)numPlots);
+		System.out.println("Have "+result.filters.size()+" filters. Will do "+numPlots+" plots with "+filtersEach+" each");
+		Preconditions.checkState(filtersEach <= FILTER_COLORS.length && filtersEach > 0);
+		
+		List<PlotSpec> specs = new ArrayList<>();
+		
+		Range xRange = new Range(-0.30*dx, filtersEach*dx + 0.15*dx);
+		
+		List<Range> yRanges = new ArrayList<>();
+		
+		for (int p=0; p<numPlots; p++) {
+			List<PlotElement> funcs = new ArrayList<>();
+			List<PlotCurveCharacterstics> chars = new ArrayList<>();
 			
-			Color c = FILTER_COLORS[i % FILTER_COLORS.length];
+			funcs.add(new DefaultXY_DataSet(new double[] {0d, 1d}, new double[] {0d, 0d}));
+			chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, 0f, Color.WHITE));
 			
-			String name = result.filters.get(i).getShortName();
+			List<XYAnnotation> anns = new ArrayList<>();
 			
-			if (percentErred > 0) {
-//				funcs.add(vertLine(x, percentFailed, percentFailed + percentErred));
-//				chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, thickness, Color.LIGHT_GRAY));
-				anns.add(emptyBox(x-deltaEachSide, 0d, x+deltaEachSide, percentFailed + percentErred,
-						PlotLineType.DASHED, Color.LIGHT_GRAY, 2f));
-				name += "*";
+			for (int i=p*filtersEach; i<result.filters.size() && i<((p+1)*filtersEach); i++) {
+				int relIndex = i % filtersEach;
+				double x = relIndex*dx + 0.5*dx;
+				double percentFailed = 100d*result.failCounts[i]/result.numRuptures;
+				double percentOnly = 100d*result.onlyFailCounts[i]/result.numRuptures;
+				double percentErred = 100d*result.erredCounts[i]/result.numRuptures;
+				
+				Color c = FILTER_COLORS[relIndex];
+				
+				String name = result.filters.get(i).getShortName();
+				
+				if (percentErred > 0) {
+//					funcs.add(vertLine(x, percentFailed, percentFailed + percentErred));
+//					chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, thickness, Color.LIGHT_GRAY));
+					anns.add(emptyBox(x-deltaEachSide, 0d, x+deltaEachSide, percentFailed + percentErred,
+							PlotLineType.DASHED, Color.LIGHT_GRAY, 2f));
+					name += "*";
+				}
+				
+//				funcs.add(vertLine(x, 0, percentFailed));
+//				chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, thickness, c));
+				anns.add(filledBox(x-deltaEachSide, 0, x+deltaEachSide, percentFailed, c));
+				
+				if (percentOnly > 0) {
+//					funcs.add(vertLine(x, 0, percentOnly));
+//					chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, thickness, darker(c)));
+					anns.add(filledBox(x-deltaEachSide, 0, x+deltaEachSide, percentOnly, darker(c)));
+				}
+				
+				XYTextAnnotation ann = new XYTextAnnotation(name, x, i % 2 == 0 ? secondRowY : thirdRowY);
+				ann.setTextAnchor(TextAnchor.TOP_CENTER);
+				ann.setPaint(c);
+				ann.setFont(font);
+				
+				anns.add(ann);
+				
+				ann = new XYTextAnnotation(percentDF.format(percentFailed/100d), x, percentFailed+0.6);
+				ann.setTextAnchor(TextAnchor.BOTTOM_CENTER);
+				ann.setPaint(Color.BLACK);
+				ann.setFont(font);
+				
+				anns.add(ann);
 			}
 			
-//			funcs.add(vertLine(x, 0, percentFailed));
-//			chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, thickness, c));
-			anns.add(filledBox(x-deltaEachSide, 0, x+deltaEachSide, percentFailed, c));
-			
-			if (percentOnly > 0) {
-//				funcs.add(vertLine(x, 0, percentOnly));
-//				chars.add(new PlotCurveCharacterstics(PlotLineType.SOLID, thickness, darker(c)));
-				anns.add(filledBox(x-deltaEachSide, 0, x+deltaEachSide, percentOnly, darker(c)));
+			if (p == 0) {
+				String passedStr = result.allPassCount+"/"+result.numRuptures+" = "
+						+percentDF.format((double)result.allPassCount/result.numRuptures)+" passed all";
+				XYTextAnnotation ann = new XYTextAnnotation(passedStr, xRange.getCentralValue(), topRowY);
+				ann.setTextAnchor(TextAnchor.CENTER);
+				ann.setPaint(Color.BLACK);
+				ann.setFont(allFont);
+				
+				anns.add(ann);
 			}
 			
-			XYTextAnnotation ann = new XYTextAnnotation(name, x, i % 2 == 0 ? secondRowY : thirdRowY);
-			ann.setTextAnchor(TextAnchor.TOP_CENTER);
-			ann.setPaint(c);
-			ann.setFont(font);
+			PlotSpec spec = new PlotSpec(funcs, chars, p == 0 ? title : "", " ", "Percent Failed");
+			spec.setPlotAnnotations(anns);
 			
-			anns.add(ann);
-			
-			ann = new XYTextAnnotation(percentDF.format(percentFailed/100d), x, percentFailed+0.6);
-			ann.setTextAnchor(TextAnchor.BOTTOM_CENTER);
-			ann.setPaint(Color.BLACK);
-			ann.setFont(font);
-			
-			anns.add(ann);
+			specs.add(spec);
+			yRanges.add(new Range(0, maxY));
 		}
-		
-		Range xRange = new Range(-0.30*dx, (result.filters.size()+0.15)*dx + 0.15*dx);
-		
-		XYTextAnnotation ann = new XYTextAnnotation(
-				percentDF.format((double)result.allPassCount/result.numRuptures)+" passed all",
-				xRange.getCentralValue(), topRowY);
-		ann.setTextAnchor(TextAnchor.CENTER);
-		ann.setPaint(Color.BLACK);
-		ann.setFont(allFont);
-		
-		anns.add(ann);
-		
-		PlotSpec spec = new PlotSpec(funcs, chars, title, " ", "Percent Failed");
-		spec.setPlotAnnotations(anns);
 		
 		HeadlessGraphPanel gp = new HeadlessGraphPanel();
 		gp.setBackgroundColor(Color.WHITE);
@@ -2320,10 +2452,12 @@ public class RupSetDiagnosticsPageGen {
 		gp.setAxisLabelFontSize(20);
 		gp.setPlotLabelFontSize(21);
 		
-		gp.drawGraphPanel(spec, false, false, xRange, new Range(0, maxY));
+		List<Range> xRanges = new ArrayList<>();
+		xRanges.add(xRange);
+		
+		gp.drawGraphPanel(specs, false, false, xRanges, yRanges);
 		gp.getXAxis().setTickLabelsVisible(false);
-//		gp.getXAxis().setvisi
-		gp.getChartPanel().setSize(1200, 600);
+		gp.getChartPanel().setSize(1200, 150 + 450*numPlots);
 		File pngFile = new File(outputDir, prefix+".png");
 		File pdfFile = new File(outputDir, prefix+".pdf");
 		gp.saveAsPNG(pngFile.getAbsolutePath());
@@ -2383,12 +2517,17 @@ public class RupSetDiagnosticsPageGen {
 		return ann;
 	}
 	
-	public static TableBuilder getRupSetPlausibilityTable(RupSetPlausibilityResult result) {
+	public static TableBuilder getRupSetPlausibilityTable(RupSetPlausibilityResult result, String linkHeading) {
+		linkHeading = linkHeading.replaceAll("#", "").trim();
 		TableBuilder table = MarkdownUtils.tableBuilder();
 		table.addLine("Filter", "Failed", "Only Failure", "Erred");
 		for (int t=0; t<result.filters.size(); t++) {
 			table.initNewLine();
-			table.addColumn("**"+result.filters.get(t).getName()+"**");
+			String name = result.filters.get(t).getName();
+			if (linkHeading != null && (result.failCounts[t] > 0 || result.erredCounts[t] > 0))
+				table.addColumn("**["+name+"](#"+MarkdownUtils.getAnchorName(linkHeading+" "+name)+")**");
+			else
+				table.addColumn("**"+name+"**");
 			table.addColumn(countStats(result.failCounts[t], result.numRuptures));
 			table.addColumn(countStats(result.onlyFailCounts[t], result.numRuptures));
 			table.addColumn(countStats(result.erredCounts[t], result.numRuptures));
@@ -2444,10 +2583,44 @@ public class RupSetDiagnosticsPageGen {
 					table.addColumn("!["+scalar.name+"]("+resourcesDir.getName()+"/"+plot.getName()+")");
 				}
 				table.finalizeLine();
-				lines.add("Distributions of ruptures which failed ("+result.failCounts[i]+") or erred ("
-						+result.erredCounts[i]+"):");
+				lines.add("**Distributions of ruptures that failed ("+countDF.format(result.failCounts[i])+") or erred ("
+						+countDF.format(result.erredCounts[i])+"):**");
 				lines.add("");
 				lines.addAll(table.wrap(5, 0).build());
+				lines.add("");
+			}
+			
+			if (result.failCounts[i] > 0) {
+				lines.add("This filter has "+result.failCounts[i]+" failures, of which "+result.onlyFailCounts[i]
+						+" are unique, i.e., fail this filter but no other filters. The table below shows how the "
+						+ "non-unique failues overlap with other filters.");
+				lines.add("");
+				TableBuilder table = MarkdownUtils.tableBuilder();
+				table.addLine("Filter", "Failures In Common", "% of My Failures",
+						"% Of All Failures", "% Of All Ruptures");
+				List<PlausibilityResult> myFilterResults = result.filterResults.get(i);
+				for (int j=0; j<result.filters.size(); j++) {
+					if (i == j || result.failCounts[j] == 0)
+						continue;
+					table.initNewLine();
+					String oName = result.filters.get(j).getName();
+					table.addColumn("**"+"["+oName+"](#"+MarkdownUtils.getAnchorName(heading+" "+oName)+")**");
+					int numCommon = 0;
+					List<PlausibilityResult> altFilterResults = result.filterResults.get(j);
+					for (int r=0; r<result.numRuptures; r++) {
+						PlausibilityResult myResult = myFilterResults.get(r);
+						PlausibilityResult altResult = altFilterResults.get(r);
+						if (myResult != null && !myResult.isPass() && altResult != null && !altResult.isPass())
+							numCommon++;
+					}
+					table.addColumn(countDF.format(numCommon));
+					table.addColumn(percentDF.format((double)numCommon/(double)result.failCounts[i]));
+					table.addColumn(percentDF.format((double)numCommon/(double)(result.numRuptures-result.allPassCount)));
+					table.addColumn(percentDF.format((double)numCommon/(double)result.numRuptures));
+					table.finalizeLine();
+					
+				}
+				lines.addAll(table.build());
 				lines.add("");
 			}
 			
@@ -2530,9 +2703,16 @@ public class RupSetDiagnosticsPageGen {
 								xAxisLabel += " ("+scaleFilter.getScalarUnits()+")";
 						}
 						System.out.println("tracker: "+track);
+						ScalarCoulombPlausibilityFilter coulombFilter = null;
+						if (filter instanceof ScalarCoulombPlausibilityFilter) {
+							coulombFilter = (ScalarCoulombPlausibilityFilter)filter;
+							AggregatedStiffnessCalculator aggCalc = coulombFilter.getAggregator();
+							if (!aggCalc.hasUnits())
+								coulombFilter = null;
+						}
 						
-						if (filter instanceof ScalarCoulombPlausibilityFilter
-								&& lower != null && lower.floatValue() <= 0f && track.getMax() < 0d) {
+						if (coulombFilter != null && lower != null && lower.floatValue() <= 0f
+								&& track.getMax() < 0d) {
 							// do it in log spacing, negative
 							double logMinNeg = Math.log10(-track.getMax());
 							double logMaxNeg = Math.log10(-track.getMin());
@@ -2563,8 +2743,8 @@ public class RupSetDiagnosticsPageGen {
 							xRange = new Range(Math.pow(10, logHist.getMinX()-0.5*logHist.getDelta()),
 									Math.pow(10, logHist.getMaxX()+0.5*logHist.getDelta()));
 							xAxisLabel = "-"+xAxisLabel;
-						} else if (filter instanceof ScalarCoulombPlausibilityFilter
-								&& lower != null && lower.floatValue() >= 0f && track.getMin() > 0d) {
+						} else if (coulombFilter != null && lower != null && lower.floatValue() >= 0f
+								&& track.getMin() > 0d) {
 							// do it in log spacing
 							double logMin = Math.log10(track.getMin());
 							double logMax = Math.log10(track.getMax());
@@ -2677,7 +2857,7 @@ public class RupSetDiagnosticsPageGen {
 				}
 				table.finalizeLine();
 				
-				lines.add("Scalar values of ruptures");
+				lines.add("**Scalar values of ruptures**");
 				lines.add("");
 				lines.addAll(table.build());
 				lines.add("");
@@ -2752,7 +2932,7 @@ public class RupSetDiagnosticsPageGen {
 	
 	private static final DecimalFormat percentDF = new DecimalFormat("0.00%");
 	private static String countStats(int count, int tot) {
-		return count+"/"+tot+" ("+percentDF.format((double)count/(double)tot)+")";
+		return countDF.format(count)+"/"+countDF.format(tot)+" ("+percentDF.format((double)count/(double)tot)+")";
 	}
 	
 //	public static getPlausibility
@@ -3125,7 +3305,7 @@ public class RupSetDiagnosticsPageGen {
 			String rupPrefix = prefix+"_"+rupIndex;
 			search.plotConnections(resourcesDir, rupPrefix, rupIndex, pairings, "Unique Connections");
 			table.addColumn("[<img src=\"" + resourcesDir.getName() + "/" + rupPrefix + ".png\" />]"+
-					"("+ generateRuptureInfoPage(rupSet, search.buildClusterRupture(rupIndex, true),
+					"("+ generateRuptureInfoPage(rupSet, search.buildClusterRupture(rupIndex, false),
 							rupIndex, rupHtmlDir, rupPrefix, null, search.getDistAzCalc())+ ")");
 		}
 		table.finalizeLine();
@@ -4436,5 +4616,527 @@ public class RupSetDiagnosticsPageGen {
 		gp.saveAsPDF(pdfFile.getAbsolutePath());
 		
 		return pngFile;
+	}
+	
+	private static class DiagnosticSummary {
+		private String primaryName;
+		private RupSetMetadata primaryMeta;
+		
+		private String compName;
+		private RupSetMetadata compMeta;
+	}
+	
+	private static class RupSetMetadata {
+		// populated during constructor
+		private int maxNumSplays;
+		private double maxJumpDist;
+		private List<String> filterNames;
+		private int rupCount;
+		private double totRate;
+		
+		// populated later
+		private int uniqueRupCount;
+		private double uniqueRupRate;
+		
+		private int connCount;
+		private int uniqueConnCount;
+		private double uniqueConnRate;
+		
+		private List<ScalarRange> scalars;
+		
+		public RupSetMetadata(FaultSystemRupSet rupSet, FaultSystemSolution sol) {
+			this.rupCount = rupSet.getNumRuptures();
+			this.maxJumpDist = Double.NaN;
+			this.maxNumSplays = -1;
+			PlausibilityConfiguration config = rupSet.getPlausibilityConfiguration();
+			if (config != null) {
+				if (config.getConnectionStrategy() != null)
+					maxJumpDist = config.getConnectionStrategy().getMaxJumpDist();
+				maxNumSplays = config.getMaxNumSplays();
+				if (config.getFilters() != null) {
+					filterNames = new ArrayList<>();
+					for (PlausibilityFilter filter : config.getFilters())
+						filterNames.add(filter.getName());
+				}
+			}
+			if (sol == null)
+				totRate = Double.NaN;
+			else
+				totRate = sol.getTotalRateForAllFaultSystemRups();
+			
+			this.uniqueConnCount = -1;
+			this.uniqueRupRate = Double.NaN;
+			this.connCount = -1;
+			this.uniqueConnCount = -1;
+			this.uniqueConnRate = Double.NaN;
+			this.scalars = new ArrayList<>();
+		}
+	}
+	
+	private static class ScalarRange {
+		private final HistScalar scalar;
+		private final double min, max;
+		
+		public ScalarRange(HistScalarValues values) {
+			double min = Double.POSITIVE_INFINITY;
+			double max = Double.NEGATIVE_INFINITY;
+			for (double val : values.values) {
+				min = Math.min(val, min);
+				max = Math.max(val, max);
+			}
+			this.min = min;
+			this.max = max;
+			this.scalar = values.scalar;
+		}
+	}
+	
+	private static Gson buildMetaGson() {
+		GsonBuilder builder = new GsonBuilder();
+		builder.serializeSpecialFloatingPointValues();
+		builder.setPrettyPrinting();
+		return builder.create();
+	}
+	
+	private static void writeMetadataJSON(DiagnosticSummary summary, File jsonFile) throws IOException {
+		Gson gson = buildMetaGson();
+		FileWriter fw = new FileWriter(jsonFile);
+		gson.toJson(summary, fw);
+		fw.write("\n");
+		fw.close();
+	}
+	
+	private static DiagnosticSummary loadMetadataJSON(File jsonFile) throws IOException {
+		Gson gson = buildMetaGson();
+		BufferedReader reader = new BufferedReader(new FileReader(jsonFile));
+		DiagnosticSummary summary = gson.fromJson(reader, DiagnosticSummary.class);
+		try {
+			reader.close();
+		} catch (IOException e) {}
+		return summary;
+	}
+	
+	private static Comparator<String> compNameComparator = new Comparator<String>() {
+
+		@Override
+		public int compare(String o1, String o2) {
+			if (o1.equals(o2))
+				return 0;
+			if (o1.toLowerCase().startsWith("standalone"))
+				return -1;
+			if (o2.toLowerCase().startsWith("standalone"))
+				return 1;
+			return o1.compareTo(o2);
+		}
+	};
+	
+	private static void writeIndex(File indexDir) throws IOException {
+		Map<File, DiagnosticSummary> summariesMap = new HashMap<>();
+		Map<File, String> headingsMap = new HashMap<>();
+		
+		RupSetMetadata primaryMeta = null;
+		String primaryName = null;
+		
+		File[] dirList = indexDir.listFiles();
+		Arrays.sort(dirList, new FileNameComparator());
+		
+		boolean hasOneComp = false;
+		boolean hasStandalone = false;
+		
+		for (File subDir : dirList) {
+			if (!subDir.isDirectory() || subDir.getName().startsWith("."))
+				continue;
+			if (!new File(subDir, "resources").exists())
+				continue;
+			if (!new File(subDir, "README.md").exists())
+				continue;
+			System.out.println("Found sub directory: "+subDir.getName());
+			
+			File metadataFile = new File(subDir, "metadata.json");
+			DiagnosticSummary summary;
+			if (metadataFile.exists()) {
+				System.out.println("\tLoading metadata");
+				summary = loadMetadataJSON(metadataFile);
+				
+				if (primaryMeta == null)
+					primaryMeta = summary.primaryMeta;
+				if (primaryName == null || summary.compMeta == null)
+					primaryName = summary.primaryName;
+			} else {
+				System.out.println("\tNo metadata file found");
+				summary = null;
+			}
+			
+			String name;
+			if (summary != null && summary.compName != null) {
+				name = "Compared With: "+summary.compName;
+				hasOneComp = true;
+			} else if (new File(new File(subDir, "resources"), "hist_LENGTH_comp.png").exists()) {
+				name = "Compared With: "+subDir.getName().replaceAll("comp_", "");
+				hasOneComp = true;
+			} else {
+				name = "Standalone Diagnostics";
+				hasStandalone = true;
+			}
+			
+			summariesMap.put(subDir, summary);
+			headingsMap.put(subDir, name);
+		}
+		if (primaryName == null)
+			primaryName = indexDir.getName();
+		
+		List<String> lines = new ArrayList<>();
+		
+		lines.add("# "+primaryName);
+		lines.add("");
+		if (primaryMeta != null) {
+			lines.addAll(metaLines(primaryMeta, null, null));
+			lines.add("");			
+		}
+		
+		List<ComparablePairing<String, File>> cmps = new ArrayList<>();
+		for (File subDir : headingsMap.keySet())
+			cmps.add(new ComparablePairing<String, File>(headingsMap.get(subDir), subDir, compNameComparator));
+		Collections.sort(cmps);
+		List<File> sortedSubDirs = new ArrayList<>();
+		for (ComparablePairing<String, File> cmp : cmps)
+			sortedSubDirs.add(cmp.getData());
+//		List<File> sortedSubDirs = ComparablePairing.getSortedData(headingsMap);
+		
+		String compTableHeader = "## Comparisons Table";
+		String topLink = "*[(back to comparisons table)](#"+MarkdownUtils.getAnchorName(compTableHeader)+")*";
+		int compTableIndex = lines.size();
+		lines.add("");
+		
+		TableBuilder compTable = MarkdownUtils.tableBuilder();
+		compTable.addLine("*Name*", "*Num Ruptures*", "*% Change*", "% Overlap (of primary)", "*Num Connections*", "*% Change*");
+		
+		if (!hasStandalone && primaryMeta != null)
+			compTable.addLine("**Primary Rupture Set**", countDF.format(primaryMeta.rupCount), "*N/A*", "*N/A*",
+					countDF.format(primaryMeta.connCount), "*N/A*");
+		
+		for (File subDir : sortedSubDirs) {
+			DiagnosticSummary summary = summariesMap.get(subDir);
+			
+			boolean hasComp = (summary != null && summary.compName != null)
+					|| new File(new File(subDir, "resources"), "hist_LENGTH_comp.png").exists();
+			
+			String heading = headingsMap.get(subDir);
+			String compName = null;
+			if (hasComp) {
+				if (summary != null && summary.compName != null)
+					compName = summary.compName;
+				else
+					compName = subDir.getName().replaceAll("comp_", "");
+				
+				String compLink = "**["+compName+"](#"+MarkdownUtils.getAnchorName(heading)+")** [(full page)]("+subDir.getName()+"/README.md)";
+				
+				if (summary != null && summary.compMeta != null) {
+					RupSetMetadata compMeta = summary.compMeta;
+					String rupPercent, overlapPercent, connPercent;
+					if (primaryMeta == null) {
+						rupPercent = "?";
+						connPercent = "?";
+						overlapPercent = "?";
+					} else {
+						rupPercent = percentDF.format((double)(compMeta.rupCount - primaryMeta.rupCount)/(double)primaryMeta.rupCount);
+						if (!rupPercent.startsWith("-"))
+							rupPercent = "+"+rupPercent;
+						overlapPercent = percentDF.format((double)(primaryMeta.rupCount - summary.primaryMeta.uniqueRupCount)/(double)primaryMeta.rupCount);
+						connPercent = percentDF.format((double)(compMeta.connCount - primaryMeta.connCount)/(double)primaryMeta.connCount);
+						if (!connPercent.startsWith("-"))
+							connPercent = "+"+connPercent;
+					}
+					compTable.addLine(compLink, countDF.format(compMeta.rupCount), rupPercent, overlapPercent,
+							countDF.format(compMeta.connCount), connPercent);
+				} else {
+					compTable.addLine(compLink, "?", "?", "?", "?", "?");
+				}
+			} else {
+				String mainLink = "**["+heading+"](#"+MarkdownUtils.getAnchorName(heading)+")** [(full page)]("+subDir.getName()+"/README.md)";
+				if (primaryMeta == null)
+					compTable.addLine(mainLink, "?", "?", "?", "?", "?");
+				else
+					compTable.addLine(mainLink, countDF.format(primaryMeta.rupCount), "*N/A*", "*N/A*",
+							countDF.format(primaryMeta.connCount), "*N/A*");
+			}
+			
+			lines.add("## "+heading);
+			lines.add("");
+			lines.add("**[Click here to view full diagnostic page]("+subDir.getName()+")**");
+			lines.add("");
+			lines.add(topLink);
+			lines.add("");
+			if (summary != null && summary.primaryMeta != null && summary.compMeta != null) {
+				lines.add("**Comparison Rupture Set:**");
+				lines.add("");
+				lines.addAll(metaLines(summary.primaryMeta, summary.compMeta, compName));
+				lines.add("");
+			}
+			
+			File resourcesDir = new File(subDir, "resources");
+			if (resourcesDir.exists()) {
+				lines.add("### Length Figures");
+				lines.add("");
+				lines.add(topLink);
+				lines.add("");
+				
+				TableBuilder table = MarkdownUtils.tableBuilder();
+				String rDirPath = subDir.getName()+"/"+resourcesDir.getName();
+				if (hasComp) {
+					table.addLine(primaryName, compName);
+					table.addLine("![Primary]("+rDirPath+"/hist_LENGTH.png)", "![Comparison]("+rDirPath+"/hist_LENGTH_comp.png)");
+					if (new File(resourcesDir, "hist_LENGTH_rates.png").exists()
+							|| new File(resourcesDir, "hist_LENGTH_comp_rates.png").exists()) {
+						table.initNewLine();
+						if (new File(resourcesDir, "hist_LENGTH_rates.png").exists())
+							table.addColumn("![Primary]("+rDirPath+"/hist_LENGTH_rates.png)");
+						else
+							table.addColumn("*N/A*");
+						if (new File(resourcesDir, "hist_LENGTH_comp_rates.png").exists())
+							table.addColumn("![Comparison]("+rDirPath+"/hist_LENGTH_comp_rates.png)");
+						else
+							table.addColumn("*N/A*");
+						table.finalizeLine();
+					}
+					if (new File(resourcesDir, "hist_LENGTH_rates_log.png").exists()
+							|| new File(resourcesDir, "hist_LENGTH_comp_rates_log.png").exists()) {
+						table.initNewLine();
+						if (new File(resourcesDir, "hist_LENGTH_rates_log.png").exists())
+							table.addColumn("![Primary]("+rDirPath+"/hist_LENGTH_rates_log.png)");
+						else
+							table.addColumn("*N/A*");
+						if (new File(resourcesDir, "hist_LENGTH_comp_rates_log.png").exists())
+							table.addColumn("![Comparison]("+rDirPath+"/hist_LENGTH_comp_rates_log.png)");
+						else
+							table.addColumn("*N/A*");
+						table.finalizeLine();
+					}
+					table.addLine("![Primary]("+rDirPath+"/sect_max_LENGTH.png)", "![Comparison]("+rDirPath+"/sect_max_LENGTH_comp.png)");
+					table.addLine("![Primary]("+rDirPath+"/sect_max_LENGTH_diff.png)", "![Comparison]("+rDirPath+"/sect_max_LENGTH_ratio.png)");
+				} else {
+					table.addLine("![Primary]("+rDirPath+"/hist_LENGTH.png)");
+					table.addLine("![Primary]("+rDirPath+"/sect_max_LENGTH.png)");
+				}
+				lines.addAll(table.build());
+				lines.add("");
+				lines.add("### Connectivity Map");
+				lines.add("");
+				lines.add(topLink);
+				lines.add("");
+				
+				if (new File(resourcesDir, "sect_connectivity_combined.png").exists()) {
+					lines.add("![map]("+rDirPath+"/sect_connectivity_combined.png)");
+					lines.add("");
+					lines.add("[Click here to view a high resolution (zoomable) map]("+rDirPath+"/sect_connectivity_combined_hires.png)");
+				} else {
+					lines.add("![map]("+rDirPath+"/sect_connectivity.png)");
+					lines.add("");
+					lines.add("[Click here to view a high resolution (zoomable) map]("+rDirPath+"/sect_connectivity_hires.png)");
+				}
+				lines.add("");
+			}
+		}
+		
+		// add TOC
+		lines.addAll(compTableIndex, compTable.build());
+		lines.add(compTableIndex, compTableHeader);
+		lines.add(compTableIndex+1, "");
+		
+		MarkdownUtils.writeReadmeAndHTML(lines, indexDir);
+	}
+	
+	private static List<String> metaLines(RupSetMetadata meta, RupSetMetadata compMeta, String compName) {
+		List<String> lines = new ArrayList<>();
+		Preconditions.checkNotNull(meta);
+		TableBuilder table = MarkdownUtils.tableBuilder();
+		if (compMeta == null)
+			table.addLine("*Property*", "*Value*");
+		else
+			table.addLine("*Property*", "*Primary Rupture Set*", "*Comparison: "+compName+"*");
+		
+		table.initNewLine();
+		table.addColumn("**Rupture Count**");
+		table.addColumn(countDF.format(meta.rupCount));
+		if (compMeta != null)
+			table.addColumn(countDF.format(compMeta.rupCount));
+		table.finalizeLine();
+		
+		if (compMeta != null) {
+			table.initNewLine();
+			table.addColumn("**Unique Rupture Count**");
+			table.addColumn(countDF.format(meta.uniqueRupCount)
+					+" ("+percentDF.format((double)meta.uniqueRupCount/(double)meta.rupCount)+")");
+			table.addColumn(countDF.format(compMeta.uniqueRupCount)
+					+" ("+percentDF.format((double)compMeta.uniqueRupCount/(double)compMeta.rupCount)+")");
+			table.finalizeLine();
+			
+			if (meta.totRate > 0 || compMeta.totRate > 0) {
+				table.initNewLine();
+				table.addColumn("**Unique Rupture Rate**");
+				if (meta.totRate > 0)
+					table.addColumn((float)meta.uniqueRupRate
+							+" ("+percentDF.format(meta.uniqueRupRate/meta.totRate)+")");
+				else
+					table.addColumn("*N/A*");
+				if (compMeta.totRate > 0)
+					table.addColumn((float)compMeta.uniqueRupRate
+							+" ("+percentDF.format(compMeta.uniqueRupRate/compMeta.totRate)+")");
+				else
+					table.addColumn("*N/A*");
+				table.finalizeLine();
+			}
+		}
+		
+		table.initNewLine();
+		table.addColumn("**Connection Count**");
+		table.addColumn(countDF.format(meta.connCount));
+		if (compMeta != null)
+			table.addColumn(countDF.format(compMeta.connCount));
+		table.finalizeLine();
+		
+		if (compMeta != null) {
+			table.initNewLine();
+			table.addColumn("**Unique Connection Count**");
+			table.addColumn(countDF.format(meta.uniqueConnCount)
+					+" ("+percentDF.format((double)meta.uniqueConnCount/(double)meta.connCount)+")");
+			table.addColumn(countDF.format(compMeta.uniqueConnCount)
+					+" ("+percentDF.format((double)compMeta.uniqueConnCount/(double)compMeta.connCount)+")");
+			table.finalizeLine();
+			
+			if (meta.totRate > 0 || compMeta.totRate > 0) {
+				table.initNewLine();
+				table.addColumn("**Unique Connection Rate**");
+				if (meta.totRate > 0)
+					table.addColumn((float)meta.uniqueConnRate
+							+" ("+percentDF.format(meta.uniqueConnRate/meta.totRate)+")");
+				else
+					table.addColumn("*N/A*");
+				if (compMeta.totRate > 0)
+					table.addColumn((float)compMeta.uniqueConnRate
+							+" ("+percentDF.format(compMeta.uniqueConnRate/compMeta.totRate)+")");
+				else
+					table.addColumn("*N/A*");
+				table.finalizeLine();
+			}
+		}
+		
+		table.initNewLine();
+		table.addColumn("**Max Allowed Jump Dist**");
+		table.addColumn((float)meta.maxJumpDist+" km");
+		if (compMeta != null)
+			table.addColumn((float)compMeta.maxJumpDist+" km");
+		table.finalizeLine();
+		
+		if (meta.maxNumSplays > 0 || (compMeta != null && compMeta.maxNumSplays > 0)) {
+			table.initNewLine();
+			table.addColumn("**Max Num Splays**");
+			table.addColumn(meta.maxNumSplays);
+			if (compMeta != null)
+				table.addColumn(compMeta.maxNumSplays);
+			table.finalizeLine();
+		}
+		
+		if (Double.isFinite(meta.totRate) || (compMeta != null && Double.isFinite(compMeta.totRate))) {
+			table.initNewLine();
+			table.addColumn("**Total Annual Rate**");
+			if (Double.isFinite(meta.totRate))
+				table.addColumn((float)meta.totRate);
+			else
+				table.addColumn("*N/A*");
+			if (compMeta != null) {
+				if (Double.isFinite(compMeta.totRate))
+					table.addColumn((float)compMeta.totRate);
+				else
+					table.addColumn("*N/A*");
+			}
+			table.finalizeLine();
+		}
+		lines.addAll(table.build());
+		
+		if (meta.filterNames != null && !meta.filterNames.isEmpty()
+				|| (compMeta != null && compMeta.filterNames != null && !compMeta.filterNames.isEmpty())) {
+			lines.add("");
+			lines.add("**Plausibility Filters**");
+			lines.add("");
+			table = MarkdownUtils.tableBuilder();
+			
+			if (compMeta == null)
+				table.addLine("*Filter Names*");
+			else
+				table.addLine("*Primary Filters*", "*Comparison ("+compName+") Filters*");
+			
+			HashSet<String> primaryFilters = new HashSet<>();
+			if (meta.filterNames != null)
+				primaryFilters.addAll(meta.filterNames);
+			
+			HashSet<String> compFilters = new HashSet<>();
+			if (compMeta != null && compMeta.filterNames != null)
+				compFilters.addAll(compMeta.filterNames);
+			
+			HashSet<String> allFilters = new HashSet<>(primaryFilters);
+			allFilters.addAll(compFilters);
+			
+			List<String> allFiltersSorted = new ArrayList<>(allFilters);
+			Collections.sort(allFiltersSorted);
+			
+			for (String filter : allFiltersSorted) {
+				table.initNewLine();
+				if (primaryFilters.contains(filter))
+					table.addColumn(filter);
+				else
+					table.addColumn("");
+				if (compMeta != null) {
+					if (compFilters.contains(filter))
+						table.addColumn(filter);
+					else
+						table.addColumn("");
+				}
+				table.finalizeLine();
+			}
+			
+			lines.addAll(table.build());
+		}
+		
+		if (meta.scalars != null && !meta.scalars.isEmpty() ||
+				(compMeta != null && compMeta.scalars != null && !compMeta.scalars.isEmpty())) {
+			lines.add("");
+			lines.add("**Scalar Values**");
+			lines.add("");
+			table = MarkdownUtils.tableBuilder();
+			if (compMeta == null)
+				table.addLine("*Name*", "*Range*");
+			else
+				table.addLine("*Name*", "*Primary Range*", "*Comparison ("+compName+") Range*");
+			Map<HistScalar, ScalarRange> primaryScalars = new HashMap<>();
+			if (meta.scalars != null)
+				for (ScalarRange range : meta.scalars)
+					primaryScalars.put(range.scalar, range);
+			Map<HistScalar, ScalarRange> compScalars = new HashMap<>();
+			if (compMeta != null && compMeta.scalars != null)
+				for (ScalarRange range : compMeta.scalars)
+					compScalars.put(range.scalar, range);
+			
+			for (HistScalar scalar : HistScalar.values()) {
+				ScalarRange primaryScalar = primaryScalars.get(scalar);
+				ScalarRange compScalar = compScalars.get(scalar);
+				if (primaryScalar == null && compScalar == null)
+					continue;
+				table.initNewLine();
+				table.addColumn("**"+scalar.name+"**");
+				if (primaryScalar == null)
+					table.addColumn("");
+				else
+					table.addColumn("["+(float)primaryScalar.min+", "+(float)primaryScalar.max+"]");
+				if (compMeta != null) {
+					if (compScalar == null)
+						table.addColumn("");
+					else
+						table.addColumn("["+(float)compScalar.min+", "+(float)compScalar.max+"]");
+				}
+				table.finalizeLine();
+			}
+			lines.addAll(table.build());
+		}
+		return lines;
 	}
 }

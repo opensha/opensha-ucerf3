@@ -1,18 +1,25 @@
 package org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility;
 
-import org.opensha.sha.simulators.stiffness.SubSectStiffnessCalculator;
-import org.opensha.sha.simulators.stiffness.SubSectStiffnessCalculator.StiffnessType;
+import java.util.Comparator;
+
+import org.opensha.sha.simulators.stiffness.AggregatedStiffnessCalculator;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.BoundType;
+import com.google.common.collect.Range;
 
 public interface ScalarCoulombPlausibilityFilter extends ScalarValuePlausibiltyFilter<Float> {
 	
-	public SubSectStiffnessCalculator getStiffnessCalc();
+	public AggregatedStiffnessCalculator getAggregator();
 	
 	public default String getScalarName() {
-		return StiffnessType.CFF.getName();
+		return getAggregator().getScalarName();
 	}
 	
 	public default String getScalarUnits() {
-		return StiffnessType.CFF.getUnits();
+		if (getAggregator().hasUnits())
+			return getAggregator().getType().getUnits();
+		return null;
 	}
 
 }
