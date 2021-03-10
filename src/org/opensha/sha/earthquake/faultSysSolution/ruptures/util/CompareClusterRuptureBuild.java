@@ -16,7 +16,6 @@ import org.opensha.sha.earthquake.faultSysSolution.ruptures.ClusterRupture;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.ClusterRuptureBuilder;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.FaultSubsectionCluster;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.PlausibilityFilter;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.U3CoulombJunctionFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.CumulativeAzimuthChangeFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.JumpAzimuthChangeFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.JumpCumulativeRakeChangeFilter;
@@ -24,6 +23,7 @@ import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.Mi
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.TotalAzimuthChangeFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.U3CompatibleCumulativeRakeChangeFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.JumpAzimuthChangeFilter.AzimuthCalc;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.coulomb.U3CoulombJunctionFilter;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.ClusterConnectionStrategy;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.DistCutoffClosestSectClusterConnectionStrategy;
 import org.opensha.sha.faultSurface.FaultSection;
@@ -49,18 +49,21 @@ public class CompareClusterRuptureBuild {
 //		FaultSystemRupSet compRupSet = FaultSystemIO.loadRupSet(new File(
 //				"/home/kevin/workspace/OpenSHA/dev/scratch/UCERF3/data/scratch/InversionSolutions/"
 //				+ "2013_05_10-ucerf3p3-production-10runs_COMPOUND_SOL_FM3_1_MEAN_BRANCH_AVG_SOL.zip"));
-		FaultSystemRupSet compRupSet = FaultSystemIO.loadRupSet(new File(rupSetsDir, "fm3_2_ucerf3.zip"));
-		boolean isCompUCERF3 = true;
-//		FaultSystemRupSet compRupSet = FaultSystemIO.loadRupSet(new File(
+//		FaultSystemRupSet compRupSet = FaultSystemIO.loadRupSet(new File(rupSetsDir, "fm3_2_ucerf3.zip"));
+//		boolean isCompUCERF3 = true;
+		FaultSystemRupSet compRupSet = FaultSystemIO.loadRupSet(new File(rupSetsDir,
 //				"/home/kevin/OpenSHA/UCERF4/rup_sets/fm3_1_cmlAz_cmlRake_cffClusterPositive.zip"));
-//		boolean isCompUCERF3 = false;
+				"fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffCPathRPatchHalfPos_cffRatioN2P0.1.zip"));
+		boolean isCompUCERF3 = false;
 		
 		System.out.println("compRupSet has "+compRupSet.getNumRuptures()+" ruptures");
 		
-		FaultModels fm = FaultModels.FM3_2;
+		FaultModels fm = FaultModels.FM3_1;
 		FaultSystemRupSet clusterRupSet = FaultSystemIO.loadRupSet(
 //				new File("/tmp/test_rup_set.zip"));
-				new File("/home/kevin/OpenSHA/UCERF4/rup_sets/fm3_2_reproduce_ucerf3.zip"));
+//				new File("/home/kevin/OpenSHA/UCERF4/rup_sets/fm3_2_reproduce_ucerf3.zip"));
+				new File(rupSetsDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb4Paths_cffP0.01"
+						+ "_cffSPathFav15_cffCPathRPatchHalfPos_cffRatioN2P0.1.zip"));
 		System.out.println("clusterRupSet has "+clusterRupSet.getNumRuptures()+" ruptures");
 		
 		boolean debugExclusions = true;

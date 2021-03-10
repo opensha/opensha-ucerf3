@@ -100,7 +100,8 @@ public class FaultSubsectionCluster implements Comparable<FaultSubsectionCluster
 		Preconditions.checkState(jump.fromSection.getParentSectionId() == parentSectionID);
 		Preconditions.checkState(contains(jump.fromSection));
 		for (Jump existing : possibleJumps)
-			if (existing.toCluster.equals(jump.toCluster) && existing.toSection.equals(jump.toSection))
+			if (existing.toCluster.equals(jump.toCluster) && existing.toSection.equals(jump.toSection)
+					&& existing.fromSection.equals(jump.fromSection))
 				// this is a duplicate, skip adding
 				return;
 		possibleJumps.add(jump);
@@ -159,12 +160,17 @@ public class FaultSubsectionCluster implements Comparable<FaultSubsectionCluster
 	}
 	@Override
 	public String toString() {
+		return toString(-1);
+	}
+	public String toString(int jumpToID) {
 		StringBuilder str = null;
 		for (FaultSection sect : subSects) {
 			if (str == null)
 				str = new StringBuilder("[").append(parentSectionID).append(":");
 			else
 				str.append(",");
+			if (sect.getSectionId() == jumpToID)
+				str.append("->");
 			str.append(sect.getSectionId());
 		}
 		return str.append("]").toString();

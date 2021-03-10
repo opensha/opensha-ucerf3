@@ -5,9 +5,11 @@ import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -26,24 +28,14 @@ import org.opensha.refFaultParamDb.vo.FaultSectionPrefData;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.PlausibilityConfiguration;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.PlausibilityConfiguration.Builder;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.PlausibilityFilter;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.CumulativeProbabilityFilter;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.JumpAzimuthChangeFilter;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.ParentCoulombCompatibilityFilter.Directionality;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.PathPlausibilityFilter.ClusterCoulombPathEvaluator;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.PathPlausibilityFilter.CumulativeJumpProbPathEvaluator;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.PathPlausibilityFilter.NucleationClusterEvaluator;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.PathPlausibilityFilter.SectCoulombPathEvaluator;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.CumulativePenaltyFilter.*;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.CumulativeProbabilityFilter.*;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.AdaptiveDistCutoffClosestSectClusterConnectionStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.ClusterConnectionStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.ClusterPermutationStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.DistCutoffClosestSectClusterConnectionStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.SectCountAdaptivePermutationStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.ConnectionPointsPermutationStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.UCERF3ClusterConnectionStrategy;
-import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.UCERF3ClusterPermuationStrategy;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.*;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.coulomb.*;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.path.*;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.plausibility.impl.prob.*;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.strategies.*;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.util.FilterDataClusterRupture;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.util.GeoJSONFaultReader;
+import org.opensha.sha.earthquake.faultSysSolution.ruptures.util.GeoJSONFaultReader.GeoSlipRateRecord;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.util.SectionDistanceAzimuthCalculator;
 import org.opensha.sha.earthquake.faultSysSolution.ruptures.util.UniqueRupture;
 import org.opensha.sha.faultSurface.FaultSection;
@@ -166,7 +158,7 @@ public class ClusterRuptureBuilder {
 							rupCountPrintMod = 10000;
 						else if (numUnique == 100000)
 							rupCountPrintMod = 25000;
-						else if (numUnique == 200000)
+						else if (numUnique == 500000)
 							rupCountPrintMod = 50000;
 						else if (numUnique == 1000000)
 							rupCountPrintMod = 100000;
@@ -424,6 +416,7 @@ public class ClusterRuptureBuilder {
 			clusterIndex = track.newStartCluster(cluster.parentSectionID);
 		}
 
+		@SuppressWarnings({ "unchecked", "rawtypes" })
 		@Override
 		public ClusterBuildCallable call() throws Exception {
 			FakeFuture<ClusterBuildCallable> primaryFuture = new FakeFuture<>(this, false);
@@ -463,9 +456,8 @@ public class ClusterRuptureBuilder {
 					List<ClusterRupture> rups = new ArrayList<>();
 					boolean canContinue = addRuptures(rups, uniques, rup, rup, 
 							permutationStrategy, track, exec, rupListFutures);
-					if (!rups.isEmpty()) {
+					if (!rups.isEmpty())
 						rupListFutures.add(new FakeFuture(rups, true));
-					}
 					if (!canContinue) {
 						System.out.println("Stopping due to debug criteria match with "+rups.size()+" ruptures");
 						debugStop = true;
@@ -524,7 +516,7 @@ public class ClusterRuptureBuilder {
 
 		@Override
 		public boolean isDone() {
-			return true;
+			return done;
 		}
 		
 		public void setDone(boolean done) {
@@ -593,6 +585,26 @@ public class ClusterRuptureBuilder {
 			ExecutorService exec, List<Future<List<ClusterRupture>>> futures) {
 		FaultSubsectionCluster lastCluster = currentStrand.clusters[currentStrand.clusters.length-1];
 		FaultSection firstSection = currentStrand.clusters[0].startSect;
+		
+		if (currentStrand == currentRupture && currentRupture.splays.size() < maxNumSplays) {
+			// add splays first, only from the end cluster
+			for (FaultSection section : lastCluster.subSects) {
+				if (section.equals(firstSection))
+					// can't jump from the first section of the rupture
+					continue;
+				if (lastCluster.endSects.contains(section))
+					// this would be a continuation of the main rupture, not a splay
+					break;
+				for (Jump jump : lastCluster.getConnections(section)) {
+					if (!currentRupture.contains(jump.toSection)) {
+						boolean canContinue = addJumpPermutations(rups, uniques, currentRupture, currentStrand,
+								permutationStrategy, jump, track);
+						if (!canContinue)
+							return false;
+					}
+				}
+			}
+		}
 
 		// try to grow this strand first
 		for (FaultSection endSection : lastCluster.endSects) {
@@ -609,36 +621,6 @@ public class ClusterRuptureBuilder {
 								permutationStrategy, jump, track);
 						if (!canContinue)
 							return false;
-					}
-				}
-			}
-		}
-		
-		// now try to add splays
-		if (currentStrand == currentRupture && currentRupture.splays.size() < maxNumSplays) {
-			for (FaultSubsectionCluster cluster : currentRupture.clusters) {
-				for (FaultSection section : cluster.subSects) {
-					if (section.equals(firstSection))
-						// can't jump from the first section of the rupture
-						continue;
-					if (lastCluster.endSects.contains(section))
-						// this would be a continuation of the main rupture, not a splay
-						break;
-					for (Jump jump : cluster.getConnections(section)) {
-						if (!currentRupture.contains(jump.toSection)) {
-							if (exec != null) {
-								// fork it
-								Future<List<ClusterRupture>> future = exec.submit(new AddRupturesCallable(
-										uniques, currentRupture, currentStrand, permutationStrategy, track, jump));
-								track.addStartClusterFuture(currentRupture.clusters[0].parentSectionID, future);
-								futures.add(future);
-							} else {
-								boolean canContinue = addJumpPermutations(rups, uniques, currentRupture, currentStrand,
-										permutationStrategy, jump, track);
-								if (!canContinue)
-									return false;
-							}
-						}
 					}
 				}
 			}
@@ -694,26 +676,36 @@ public class ClusterRuptureBuilder {
 					System.out.println("We passed but have already processed this rupture, skipping");
 			}
 			// continue to build this rupture
-			ClusterRupture newCurrentStrand;
+//			ClusterRupture newCurrentStrand;
 			if (currentStrand == currentRupture) {
-				newCurrentStrand = candidateRupture;
+				// we're on the primary strand
+				boolean canContinue = addRuptures(rups, uniques, candidateRupture, candidateRupture,
+						permutationStrategy, track, null, null);
+				if (!canContinue)
+					return false;
 			} else {
 				// we're building a splay, try to continue that one
-				newCurrentStrand = null;
+				ClusterRupture splayStrand = null;
 				for (ClusterRupture splay : candidateRupture.splays.values()) {
 					if (splay.contains(jump.toSection)) {
-						newCurrentStrand = splay;
+						splayStrand = splay;
 						break;
 					}
 				}
-				Preconditions.checkNotNull(newCurrentStrand);
-				FaultSection newLastStart = newCurrentStrand.clusters[newCurrentStrand.clusters.length-1].startSect;
+				Preconditions.checkNotNull(splayStrand);
+				// try to build out the splay
+				FaultSection newLastStart = splayStrand.clusters[splayStrand.clusters.length-1].startSect;
 				Preconditions.checkState(newLastStart.equals(permutation.startSect));
+				boolean canContinue = addRuptures(rups, uniques, candidateRupture, splayStrand,
+						permutationStrategy, track, null, null);
+				if (!canContinue)
+					return false;
+				// now try to build out the primary strand
+				canContinue = addRuptures(rups, uniques, candidateRupture, candidateRupture,
+						permutationStrategy, track, null, null);
+				if (!canContinue)
+					return false;
 			}
-			boolean canContinue = addRuptures(rups, uniques, candidateRupture, newCurrentStrand,
-					permutationStrategy, track, null, null);
-			if (!canContinue)
-				return false;
 		}
 		return true;
 	}
@@ -878,7 +870,7 @@ public class ClusterRuptureBuilder {
 		
 	}
 	
-	private static int[] loadRupString(String rupStr, boolean parents) {
+	public static int[] loadRupString(String rupStr, boolean parents) {
 		Preconditions.checkState(rupStr.contains("["));
 		List<Integer> ids = new ArrayList<>();
 		while (rupStr.contains("[")) {
@@ -916,7 +908,7 @@ public class ClusterRuptureBuilder {
 
 		@Override
 		public boolean isMatch(ClusterRupture rup, Jump newJump) {
-			return !uniques.contains(new UniqueRupture(rup.unique, newJump.toCluster));
+			return !uniques.contains(UniqueRupture.add(rup.unique, newJump.toCluster.unique));
 		}
 
 		@Override
@@ -943,7 +935,7 @@ public class ClusterRuptureBuilder {
 
 		@Override
 		public boolean isMatch(ClusterRupture rup, Jump newJump) {
-			return uniques.contains(new UniqueRupture(rup.unique, newJump.toCluster));
+			return uniques.contains(UniqueRupture.add(rup.unique, newJump.toCluster.unique));
 		}
 
 		@Override
@@ -997,20 +989,60 @@ public class ClusterRuptureBuilder {
 		// END U3
 		
 		// for NZ tests
-		File xmlFile = new File(rupSetsDir, "DEMO5_SANSTVZ_crustal_opensha.xml");
-		Document fsDoc = XMLUtils.loadDocument(xmlFile);
-		Element fsEl = fsDoc.getRootElement().element("FaultModel");
-		List<FaultSection> sects = FaultSystemIO.fsDataFromXML(fsEl);
+//		File xmlFile = new File(rupSetsDir, "DEMO5_SANSTVZ_crustal_opensha.xml");
+//		Document fsDoc = XMLUtils.loadDocument(xmlFile);
+//		Element fsEl = fsDoc.getRootElement().element("FaultModel");
+//		List<FaultSection> sects = FaultSystemIO.fsDataFromXML(fsEl);
+//		System.out.println("Loaded "+sects.size()+" sections");
+//		List<FaultSection> subSects = new ArrayList<>();
+//		for (FaultSection sect : sects)
+//			subSects.addAll(sect.getSubSectionsList(0.5*sect.getOrigDownDipWidth(), subSects.size(), 2));
+//		System.out.println("Built "+subSects.size()+" subsections");
+//		Preconditions.checkState(!subSects.isEmpty());
+//		String fmPrefix = "nz_demo5_crustal";
+//		File distAzCacheFile = new File(rupSetsDir, fmPrefix+"_dist_az_cache.csv");
+//		ScalingRelationships scale = ScalingRelationships.MEAN_UCERF3;
+		// END NZ
+		
+		// NSHM23 tests
+		String state = null;
+		
+		String fmPrefix;
+		List<FaultSection> sects;
+		if (state == null) {
+			fmPrefix = "nshm23_v1_all";
+			sects = new ArrayList<>();
+			for (List<FaultSection> stateFaults : GeoJSONFaultReader.readFaultSections(
+					new File("/home/kevin/Downloads/NSHM2023_FaultSections_v1mod.geojson"), false).values())
+				sects.addAll(stateFaults);
+		} else {
+			fmPrefix = "nshm23_v1_"+state.toLowerCase();
+			sects = GeoJSONFaultReader.readFaultSections(
+					new File("/home/kevin/Downloads/NSHM2023_FaultSections_v1mod.geojson"), true).get(state);
+		}
+		Collections.sort(sects, new Comparator<FaultSection>() {
+
+			@Override
+			public int compare(FaultSection o1, FaultSection o2) {
+				return o1.getSectionName().compareTo(o2.getSectionName());
+			}
+		});
+		
+		File distAzCacheFile = new File(rupSetsDir, fmPrefix+"_dist_az_cache.csv");
+		ScalingRelationships scale = ScalingRelationships.MEAN_UCERF3;
 		System.out.println("Loaded "+sects.size()+" sections");
+		// add slip rates
+		Map<Integer, List<GeoSlipRateRecord>> slipRates = GeoJSONFaultReader.readGeoDB(
+				new File("/home/kevin/Downloads/NSHM2023_EQGeoDB_v1.geojson"));
+		List<FaultSection> fallbacks = new ArrayList<>();
+		fallbacks.addAll(FaultModels.FM3_1.fetchFaultSections());
+		fallbacks.addAll(FaultModels.FM3_2.fetchFaultSections());
+		GeoJSONFaultReader.testMapSlipRates(sects, slipRates, 1d, fallbacks);
 		List<FaultSection> subSects = new ArrayList<>();
 		for (FaultSection sect : sects)
 			subSects.addAll(sect.getSubSectionsList(0.5*sect.getOrigDownDipWidth(), subSects.size(), 2));
 		System.out.println("Built "+subSects.size()+" subsections");
-		Preconditions.checkState(!subSects.isEmpty());
-		String fmPrefix = "nz_demo5_crustal";
-		File distAzCacheFile = new File(rupSetsDir, fmPrefix+"_dist_az_cache.csv");
-		ScalingRelationships scale = ScalingRelationships.MEAN_UCERF3;
-		// END NZ
+		// END NSHM23
 		
 		RupDebugCriteria debugCriteria = null;
 		boolean stopAfterDebug = false;
@@ -1049,13 +1081,16 @@ public class ClusterRuptureBuilder {
 		int numAzCached = distAzCalc.getNumCachedAzimuths();
 		int numDistCached = distAzCalc.getNumCachedDistances();
 		
+		int threads = Integer.max(1, Integer.min(31, Runtime.getRuntime().availableProcessors()-2));
+//		int threads = 1;
+		
 		/*
 		 * =============================
 		 * To reproduce UCERF3
 		 * =============================
 		 */
 //		PlausibilityConfiguration config = PlausibilityConfiguration.getUCERF3(subSects, distAzCalc, fm);
-//		ClusterPermutationStrategy permStrat = new UCERF3ClusterPermuationStrategy();
+//		ClusterPermutationStrategy permStrat = new ExhaustiveClusterPermuationStrategy();
 //		String outputName = fmPrefix+"_reproduce_ucerf3.zip";
 //		AggregatedStiffnessCache stiffnessCache = null;
 //		File stiffnessCacheFile = null;
@@ -1113,8 +1148,9 @@ public class ClusterRuptureBuilder {
 		 * =============================
 		 */
 		// build stiffness calculator (used for new Coulomb)
+		double stiffGridSpacing = 2d;
 		SubSectStiffnessCalculator stiffnessCalc = new SubSectStiffnessCalculator(
-				subSects, 2d, 3e4, 3e4, 0.5, PatchAlignment.FILL_OVERLAP, 1d);
+				subSects, stiffGridSpacing, 3e4, 3e4, 0.5, PatchAlignment.FILL_OVERLAP, 1d);
 		AggregatedStiffnessCache stiffnessCache = stiffnessCalc.getAggregationCache(StiffnessType.CFF);
 		File stiffnessCacheFile = new File(rupSetsDir, stiffnessCache.getCacheFileName());
 		int stiffnessCacheSize = 0;
@@ -1125,8 +1161,22 @@ public class ClusterRuptureBuilder {
 				AggregationMethod.FLATTEN, AggregationMethod.SUM, AggregationMethod.SUM, AggregationMethod.SUM);
 		AggregatedStiffnessCalculator fractRpatchPosAgg = new AggregatedStiffnessCalculator(StiffnessType.CFF, stiffnessCalc, true,
 				AggregationMethod.SUM, AggregationMethod.PASSTHROUGH, AggregationMethod.RECEIVER_SUM, AggregationMethod.FRACT_POSITIVE);
+//		AggregatedStiffnessCalculator threeQuarterInts = new AggregatedStiffnessCalculator(StiffnessType.CFF, stiffnessCalc, true,
+//				AggregationMethod.NUM_POSITIVE, AggregationMethod.SUM, AggregationMethod.SUM, AggregationMethod.THREE_QUARTER_INTERACTIONS);
+		AggregatedStiffnessCalculator fractIntsAgg = new AggregatedStiffnessCalculator(StiffnessType.CFF, stiffnessCalc, true,
+				AggregationMethod.FLATTEN, AggregationMethod.NUM_POSITIVE, AggregationMethod.SUM, AggregationMethod.NORM_BY_COUNT);
+		float slipRateProb = 0.05f;		// PREF: 0.05
+		float cffFractInts = 0.75f;		// PREF: 0.75
+		int cffRatioN = 2;				// PREF: 2
+		float cffRatioThresh = 0.5f;	// PREF: 0.5
+		float cffRelativeProb = 0.02f;	// PREF: 0.02
+		boolean favorableJumps = true;	// PREF: true
+//		CoulombSectRatioProb cffRatioProb = new CoulombSectRatioProb(sumAgg, cffRatioN);
 		
 		String outputName = fmPrefix;
+		
+		if (stiffGridSpacing != 2d)
+			outputName += "_stiff"+new DecimalFormat("0.#").format(stiffGridSpacing)+"km";
 		
 		/*
 		 * Connection strategy: which faults are allowed to connect, and where?
@@ -1139,23 +1189,51 @@ public class ClusterRuptureBuilder {
 //		if (maxJumpDist != 5d)
 //			outputName += "_"+new DecimalFormat("0.#").format(maxJumpDist)+"km";
 		// use this for simpler connection rules
-//		double maxJumpDist = 5d;
+//		double maxJumpDist = 10d;
 //		ClusterConnectionStrategy connectionStrategy =
 //			new DistCutoffClosestSectClusterConnectionStrategy(subSects, distAzCalc, maxJumpDist);
 //		if (maxJumpDist != 5d)
 //			outputName += "_"+new DecimalFormat("0.#").format(maxJumpDist)+"km";
 		// use this for adaptive distance filter
-		double r0 = 5d;
-		double rMax = 10d;
-		int cMax = -1;
-		int sMax = 1;
+//		double r0 = 5d;
+//		double rMax = 10d;
+//		int cMax = -1;
+//		int sMax = 1;
+//		ClusterConnectionStrategy connectionStrategy =
+//				new AdaptiveDistCutoffClosestSectClusterConnectionStrategy(subSects, distAzCalc, r0, rMax, cMax, sMax);
+//		outputName += "_adapt"+new DecimalFormat("0.#").format(r0)+"_"+new DecimalFormat("0.#").format(rMax)+"km";
+//		if (cMax >= 0)
+//			outputName += "_cMax"+cMax;
+//		if (sMax >= 0)
+//			outputName += "_sMax"+sMax;
+		// use this to pick connections which agree with your plausibility filters
+		double maxJumpDist = 10d;
+		// some filters need a connection strategy, use one that only includes immediate neighbors at this step
+		DistCutoffClosestSectClusterConnectionStrategy neighborsConnStrat =
+				new DistCutoffClosestSectClusterConnectionStrategy(subSects, distAzCalc, 0.1d);
+		List<PlausibilityFilter> connFilters = new ArrayList<>();
+		if (cffRatioThresh > 0f) {
+			connFilters.add(new CumulativeProbabilityFilter(cffRatioThresh, new CoulombSectRatioProb(
+					sumAgg, cffRatioN, favorableJumps, (float)maxJumpDist, distAzCalc)));
+			if (cffRelativeProb > 0f)
+				connFilters.add(new PathPlausibilityFilter(
+						new CumulativeProbPathEvaluator(cffRatioThresh, PlausibilityResult.FAIL_HARD_STOP,
+								new CoulombSectRatioProb(sumAgg, cffRatioN, favorableJumps, (float)maxJumpDist, distAzCalc)),
+						new CumulativeProbPathEvaluator(cffRelativeProb, PlausibilityResult.FAIL_HARD_STOP,
+								new RelativeCoulombProb(sumAgg, neighborsConnStrat, false, true, favorableJumps, (float)maxJumpDist, distAzCalc))));
+		} else if (cffRelativeProb > 0f) {
+			connFilters.add(new CumulativeProbabilityFilter(cffRatioThresh, new RelativeCoulombProb(
+					sumAgg, neighborsConnStrat, false, true, favorableJumps, (float)maxJumpDist, distAzCalc)));
+		}
+		if (cffFractInts > 0f)
+			connFilters.add(new NetRuptureCoulombFilter(fractIntsAgg, cffFractInts));
+		System.out.println("Building plausible connections w/ "+threads+" threads...");
 		ClusterConnectionStrategy connectionStrategy =
-				new AdaptiveDistCutoffClosestSectClusterConnectionStrategy(subSects, distAzCalc, r0, rMax, cMax, sMax);
-		outputName += "_adapt"+new DecimalFormat("0.#").format(r0)+"_"+new DecimalFormat("0.#").format(rMax)+"km";
-		if (cMax >= 0)
-			outputName += "_cMax"+cMax;
-		if (sMax >= 0)
-			outputName += "_sMax"+sMax;
+			new PlausibleClusterConnectionStrategy(subSects, distAzCalc, maxJumpDist,
+					PlausibleClusterConnectionStrategy.JUMP_SELECTOR_DEFAULT, connFilters);
+		outputName += "_plausibleMulti"+new DecimalFormat("0.#").format(maxJumpDist)+"km";
+		connectionStrategy.checkBuildThreaded(threads);
+		System.out.println("DONE building plausible connections");
 		
 		Builder configBuilder = PlausibilityConfiguration.builder(connectionStrategy, subSects);
 		
@@ -1168,6 +1246,7 @@ public class ClusterRuptureBuilder {
 		 */
 //		configBuilder.u3All(CoulombRates.loadUCERF3CoulombRates(fm)); outputName += "_ucerf3";
 		configBuilder.minSectsPerParent(2, true, true); // always do this one
+		configBuilder.noIndirectPaths(); outputName += "_direct";
 //		configBuilder.u3Cumulatives(); outputName += "_u3Cml"; // cml rake and azimuth
 //		configBuilder.cumulativeAzChange(560f); outputName += "_cmlAz"; // cml azimuth only
 //		configBuilder.cumulativeRakeChange(180f); outputName += "_cmlRake"; // cml azimuth only
@@ -1177,9 +1256,11 @@ public class ClusterRuptureBuilder {
 		/*
 		 * Regular slip prob
 		 */
-		// SLIP RATE PROB: only increasing, 0.01
-		configBuilder.cumulativeProbability(0.01f, new RelativeSlipRateProb(connectionStrategy, true));
-		outputName += "_slipP0.01incr";
+		// SLIP RATE PROB: only increasing
+		if (slipRateProb > 0f) {
+			configBuilder.cumulativeProbability(slipRateProb, new RelativeSlipRateProb(connectionStrategy, true));
+			outputName += "_slipP"+slipRateProb+"incr";
+		}
 		// END SLIP RATE PROB
 		
 		/*
@@ -1194,11 +1275,12 @@ public class ClusterRuptureBuilder {
 		/*
 		 *  CFF net rupture filters
 		 */
-		// MAIN 3/4 INTERACTIONS POSITIVE
-		configBuilder.netRupCoulomb(new AggregatedStiffnessCalculator(StiffnessType.CFF, stiffnessCalc, true,
-				AggregationMethod.NUM_POSITIVE, AggregationMethod.SUM, AggregationMethod.SUM, AggregationMethod.THREE_QUARTER_INTERACTIONS),
-				Range.greaterThan(0f));
-		outputName += "_cff3_4_IntsPos";
+		// FRACT INTERACTIONS POSITIVE
+		if (cffFractInts > 0f) {
+			configBuilder.netRupCoulomb(fractIntsAgg,
+					Range.greaterThan(cffFractInts));
+			outputName += "_cff"+cffFractInts+"IntsPos";
+		}
 		// END MAIN 3/4 INTERACTIONS POSITIVE
 		
 		/**
@@ -1207,6 +1289,13 @@ public class ClusterRuptureBuilder {
 		List<NucleationClusterEvaluator> combPathEvals = new ArrayList<>();
 		List<String> combPathPrefixes = new ArrayList<>();
 		float fractPathsThreshold = 0f; String fractPathsStr = "";
+		float favorableDist = Float.max((float)maxJumpDist, 10f);
+		String favStr = "";
+		if (favorableJumps) {
+			favStr = "Fav";
+			if (favorableDist != (float)maxJumpDist)
+				favStr += (int)favorableDist;
+		}
 		// SLIP RATE PROB: as a path, only increasing NOT CURRENTLY PREFERRED
 //		float pathSlipProb = 0.1f;
 //		CumulativeJumpProbPathEvaluator slipEval = new CumulativeJumpProbPathEvaluator(
@@ -1215,24 +1304,36 @@ public class ClusterRuptureBuilder {
 ////		configBuilder.path(slipEval); outputName += "_slipPathP"+pathSlipProb+"incr"; // do it separately
 		// END SLIP RATE PROB
 		// CFF PROB: as a path, allow negative, 0.01
-		RelativeCoulombProb cffProbCalc = new RelativeCoulombProb(
-				sumAgg, connectionStrategy, false, true, true);
-		CumulativeJumpProbPathEvaluator cffProbPathEval = new CumulativeJumpProbPathEvaluator(
-				0.01f, PlausibilityResult.FAIL_HARD_STOP, cffProbCalc);
-		combPathEvals.add(cffProbPathEval); combPathPrefixes.add("cffP0.01");
+		if (cffRelativeProb > 0f) {
+			RelativeCoulombProb cffProbCalc = new RelativeCoulombProb(
+					sumAgg, connectionStrategy, false, true, favorableJumps, favorableDist, distAzCalc);
+			CumulativeProbPathEvaluator cffProbPathEval = new CumulativeProbPathEvaluator(
+					cffRelativeProb, PlausibilityResult.FAIL_HARD_STOP, cffProbCalc);
+			combPathEvals.add(cffProbPathEval); combPathPrefixes.add("cff"+favStr+"P"+cffRelativeProb);
+		}
 //		configBuilder.path(cffProbPathEval); outputName += "_cffPathP0.01"; // do it separately
 		// CFF SECT PATH: relBest, 15km
-		SectCoulombPathEvaluator prefCFFSectPathEval = new SectCoulombPathEvaluator(
-				sumAgg, Range.atLeast(0f), PlausibilityResult.FAIL_HARD_STOP, true, 15f, distAzCalc);
-		combPathEvals.add(prefCFFSectPathEval); combPathPrefixes.add("cffSPathFav15");
-//		configBuilder.path(prefCFFSectPathEval); outputName += "_cffSPathFav15"; // do it separately
+//		SectCoulombPathEvaluator prefCFFSectPathEval = new SectCoulombPathEvaluator(
+//				sumAgg, Range.atLeast(0f), PlausibilityResult.FAIL_HARD_STOP, true, 15f, distAzCalc);
+//		combPathEvals.add(prefCFFSectPathEval); combPathPrefixes.add("cffSPathFav15");
+////		configBuilder.path(prefCFFSectPathEval); outputName += "_cffSPathFav15"; // do it separately
 		// END CFF SECT PATH
 		// CFF CLUSTER PATH: half RPatches positive
-		ClusterCoulombPathEvaluator prefCFFRPatchEval = new ClusterCoulombPathEvaluator(
-				fractRpatchPosAgg, Range.atLeast(0.5f), PlausibilityResult.FAIL_HARD_STOP);
-		combPathEvals.add(prefCFFRPatchEval); combPathPrefixes.add("cffCPathRPatchHalfPos");
-//		configBuilder.path(prefCFFRPatchEval); outputName += "_cffCPathRPatchHalfPos"; // do it separately
+//		ClusterCoulombPathEvaluator prefCFFRPatchEval = new ClusterCoulombPathEvaluator(
+//				fractRpatchPosAgg, Range.atLeast(0.5f), PlausibilityResult.FAIL_HARD_STOP);
+//		combPathEvals.add(prefCFFRPatchEval); combPathPrefixes.add("cffCPathRPatchHalfPos");
+////		configBuilder.path(prefCFFRPatchEval); outputName += "_cffCPathRPatchHalfPos"; // do it separately
 		// END CFF CLUSTER PATH
+		// CFF RATIO PATH: N=2, relBest, 15km
+		if (cffRatioThresh > 0f) {
+			CumulativeProbPathEvaluator cffRatioPatchEval = new CumulativeProbPathEvaluator(cffRatioThresh,
+					PlausibilityResult.FAIL_HARD_STOP,
+					new CoulombSectRatioProb(sumAgg, cffRatioN, favorableJumps, favorableDist, distAzCalc));
+			combPathEvals.add(cffRatioPatchEval);
+			combPathPrefixes.add("cff"+favStr+"RatioN"+cffRatioN+"P"+cffRatioThresh);
+		}
+//		configBuilder.path(prefCFFRPatchEval); outputName += "_cffCPathRPatchHalfPos"; // do it separately
+		// END CFF RATIO PATH
 		// add them
 		Preconditions.checkState(combPathEvals.size() == combPathPrefixes.size());
 		if (!combPathEvals.isEmpty()) {
@@ -1254,7 +1355,7 @@ public class ClusterRuptureBuilder {
 		// Check connectivity only (maximum 2 clusters per rupture)
 //		configBuilder.maxNumClusters(2); outputName += "_connOnly";
 		
-//		File outputDir = new File(rupSetsDir, "fm3_1_adapt5_10km_sMax1_slipP0.01incr_cff3_4_IntsPos_comb3Paths_cffP0.01_cffSPathFav15_cffCPathRPatchHalfPos_comp");
+//		File outputDir = new File(rupSetsDir, "fm3_1_plausible10km_slipP0.05incr_cff3_4_IntsPos_comb2Paths_cffP0.05_cffRatioN2P0.5_sectFractPerm0.05_comp");
 //		Preconditions.checkState(outputDir.exists() || outputDir.mkdir());
 		File outputDir = rupSetsDir;
 		
@@ -1264,7 +1365,7 @@ public class ClusterRuptureBuilder {
 		configBuilder.maxSplays(0); // default, no splays
 //		configBuilder.maxSplays(1); outputName += "_max1Splays";
 ////		configBuilder.splayLength(0.1, true, true); outputName += "_splayLenFract0.1";
-//		configBuilder.splayLength(50, false, true); outputName += "_splayLen50km";
+//		configBuilder.splayLength(100, false, true); outputName += "_splayLen100km";
 		
 		/*
 		 * Permutation strategies: how should faults be broken up into permutations, combinations of which
@@ -1309,9 +1410,6 @@ public class ClusterRuptureBuilder {
 		
 		if (debugCriteria != null)
 			builder.setDebugCriteria(debugCriteria, stopAfterDebug);
-		
-		int threads = Integer.max(1, Integer.min(31, Runtime.getRuntime().availableProcessors()-2));
-//		int threads = 1;
 		System.out.println("Building ruptures with "+threads+" threads...");
 		Stopwatch watch = Stopwatch.createStarted();
 		List<ClusterRupture> rups = builder.build(permStrat, threads);
@@ -1324,67 +1422,9 @@ public class ClusterRuptureBuilder {
 			+" secs = "+timeDF.format(mins)+" mins. Total rate: "+rupRate(rups.size(), millis));
 		
 		if (writeRupSet) {
-			// write out test rup set
-//			double[] mags = new double[rups.size()];
-//			double[] lenghts = new double[rups.size()];
-//			double[] rakes = new double[rups.size()];
-//			double[] rupAreas = new double[rups.size()];
-//			List<List<Integer>> sectionForRups = new ArrayList<>();
-//			for (int r=0; r<rups.size(); r++) {
-//				List<FaultSection> sects = rups.get(r).buildOrderedSectionList();
-//				List<Integer> ids = new ArrayList<>();
-//				for (FaultSection sect : sects)
-//					ids.add(sect.getSectionId());
-//				sectionForRups.add(ids);
-//				mags[r] = Double.NaN;
-//				rakes[r] = Double.NaN;
-//				rupAreas[r] = Double.NaN;
-//			}
-			double[] sectSlipRates = new double[subSects.size()];
-			double[] sectAreasReduced = new double[subSects.size()];
-			double[] sectAreasOrig = new double[subSects.size()];
-			for (int s=0; s<sectSlipRates.length; s++) {
-				FaultSection sect = subSects.get(s);
-				sectAreasReduced[s] = sect.getArea(true);
-				sectAreasOrig[s] = sect.getArea(false);
-				sectSlipRates[s] = sect.getReducedAveSlipRate()*1e-3; // mm/yr => m/yr
-			}
-			double[] rupMags = new double[rups.size()];
-			double[] rupRakes = new double[rups.size()];
-			double[] rupAreas = new double[rups.size()];
-			double[] rupLengths = new double[rups.size()];
-			List<List<Integer>> rupsIDsList = new ArrayList<>();
-			for (int r=0; r<rups.size(); r++) {
-				ClusterRupture rup = rups.get(r);
-				List<FaultSection> rupSects = rup.buildOrderedSectionList();
-				List<Integer> sectIDs = new ArrayList<>();
-				double totLength = 0d;
-				double totArea = 0d;
-				double totOrigArea = 0d; // not reduced for aseismicity
-				List<Double> sectAreas = new ArrayList<>();
-				List<Double> sectRakes = new ArrayList<>();
-				for (FaultSection sect : rupSects) {
-					sectIDs.add(sect.getSectionId());
-					double length = sect.getTraceLength()*1e3;	// km --> m
-					totLength += length;
-					double area = sectAreasReduced[sect.getSectionId()];	// sq-m
-					totArea += area;
-					totOrigArea += sectAreasOrig[sect.getSectionId()];	// sq-m
-					sectAreas.add(area);
-					sectRakes.add(sect.getAveRake());
-				}
-				rupAreas[r] = totArea;
-				rupLengths[r] = totLength;
-				rupRakes[r] = FaultUtils.getInRakeRange(FaultUtils.getScaledAngleAverage(sectAreas, sectRakes));
-				double origDDW = totOrigArea/totLength;
-				rupMags[r] = scale.getMag(totArea, origDDW);
-				rupsIDsList.add(sectIDs);
-			}
-			FaultSystemRupSet rupSet = new FaultSystemRupSet(subSects, sectSlipRates, null, sectAreasReduced, 
-					rupsIDsList, rupMags, rupRakes, rupAreas, rupLengths, "");
-			rupSet.setPlausibilityConfiguration(config);
-			rupSet.setClusterRuptures(rups);
-			FaultSystemIO.writeRupSet(rupSet, new File(outputDir, outputName));
+			File outputFile = new File(outputDir, outputName);
+			FaultSystemRupSet rupSet = buildClusterRupSet(scale, subSects, config, rups);
+			FaultSystemIO.writeRupSet(rupSet, outputFile);
 		}
 
 		if (numAzCached < distAzCalc.getNumCachedAzimuths()
@@ -1400,6 +1440,55 @@ public class ClusterRuptureBuilder {
 			stiffnessCache.writeCacheFile(stiffnessCacheFile);
 			System.out.println("DONE writing stiffness cache");
 		}
+	}
+
+	public static FaultSystemRupSet buildClusterRupSet(ScalingRelationships scale, List<? extends FaultSection> subSects,
+			PlausibilityConfiguration config, List<ClusterRupture> rups) {
+		double[] sectSlipRates = new double[subSects.size()];
+		double[] sectAreasReduced = new double[subSects.size()];
+		double[] sectAreasOrig = new double[subSects.size()];
+		for (int s=0; s<sectSlipRates.length; s++) {
+			FaultSection sect = subSects.get(s);
+			sectAreasReduced[s] = sect.getArea(true);
+			sectAreasOrig[s] = sect.getArea(false);
+			sectSlipRates[s] = sect.getReducedAveSlipRate()*1e-3; // mm/yr => m/yr
+		}
+		double[] rupMags = new double[rups.size()];
+		double[] rupRakes = new double[rups.size()];
+		double[] rupAreas = new double[rups.size()];
+		double[] rupLengths = new double[rups.size()];
+		List<List<Integer>> rupsIDsList = new ArrayList<>();
+		for (int r=0; r<rups.size(); r++) {
+			ClusterRupture rup = rups.get(r);
+			List<FaultSection> rupSects = rup.buildOrderedSectionList();
+			List<Integer> sectIDs = new ArrayList<>();
+			double totLength = 0d;
+			double totArea = 0d;
+			double totOrigArea = 0d; // not reduced for aseismicity
+			List<Double> sectAreas = new ArrayList<>();
+			List<Double> sectRakes = new ArrayList<>();
+			for (FaultSection sect : rupSects) {
+				sectIDs.add(sect.getSectionId());
+				double length = sect.getTraceLength()*1e3;	// km --> m
+				totLength += length;
+				double area = sectAreasReduced[sect.getSectionId()];	// sq-m
+				totArea += area;
+				totOrigArea += sectAreasOrig[sect.getSectionId()];	// sq-m
+				sectAreas.add(area);
+				sectRakes.add(sect.getAveRake());
+			}
+			rupAreas[r] = totArea;
+			rupLengths[r] = totLength;
+			rupRakes[r] = FaultUtils.getInRakeRange(FaultUtils.getScaledAngleAverage(sectAreas, sectRakes));
+			double origDDW = totOrigArea/totLength;
+			rupMags[r] = scale.getMag(totArea, origDDW);
+			rupsIDsList.add(sectIDs);
+		}
+		FaultSystemRupSet rupSet = new FaultSystemRupSet(subSects, sectSlipRates, null, sectAreasReduced, 
+				rupsIDsList, rupMags, rupRakes, rupAreas, rupLengths, "");
+		rupSet.setPlausibilityConfiguration(config);
+		rupSet.setClusterRuptures(rups);
+		return rupSet;
 	}
 
 }
