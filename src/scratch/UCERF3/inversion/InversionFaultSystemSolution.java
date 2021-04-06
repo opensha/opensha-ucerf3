@@ -68,7 +68,7 @@ import com.google.common.collect.Maps;
  */
 public class InversionFaultSystemSolution extends SlipEnabledSolution {
 	
-	private InversionFaultSystemRupSet rupSet;
+	protected InversionFaultSystemRupSet rupSet;
 	
 	private InversionModels invModel;
 	private LogicTreeBranch branch;
