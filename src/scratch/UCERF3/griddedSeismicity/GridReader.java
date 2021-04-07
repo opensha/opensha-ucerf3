@@ -134,10 +134,9 @@ public class GridReader {
 	}
 
 	private static class FnDblToKey implements Function<Double, Integer> {
-		double offset = 0.0;
 		@Override
 		public Integer apply(Double d) {
-			return (int) Math.round((d+offset) * 10);
+			return (int) Math.round(d * 10);
 		}
 	}
 
