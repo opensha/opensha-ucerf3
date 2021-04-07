@@ -54,7 +54,7 @@ public class FaultSystemRupSet implements Serializable {
 	
 	// data arrays/lists
 	private List<? extends FaultSection> faultSectionData;
-	protected double[] mags;
+	private double[] mags;
 	private double[] sectSlipRates;
 	private double[] sectSlipRateStdDevs;
 	private double[] rakes;
@@ -65,7 +65,7 @@ public class FaultSystemRupSet implements Serializable {
 	private String info;
 
 	private PlausibilityConfiguration plausibilityConfig;
-	protected List<ClusterRupture> clusterRuptures;
+	private List<ClusterRupture> clusterRuptures;
 	
 	// for caching
 	protected boolean showProgress = false;
@@ -890,7 +890,7 @@ public class FaultSystemRupSet implements Serializable {
 		setClusterRuptures(ruptures);
 	}
 	
-	public static class ClusterRupCalc implements Callable<ClusterRupture> {
+	private static class ClusterRupCalc implements Callable<ClusterRupture> {
 		
 		private RuptureConnectionSearch search;
 		private int rupIndex;
