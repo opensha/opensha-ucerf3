@@ -11,7 +11,7 @@ import scratch.UCERF3.utils.aveSlip.AveSlipConstraint;
 
 public abstract class SlipEnabledSolution extends FaultSystemSolution {
 	
-	protected double[] slipRatesCache;
+	private double[] slipRatesCache;
 	
 	private HashMap<Integer, ArbDiscrEmpiricalDistFunc> slipPDFMap =
 			new HashMap<Integer, ArbDiscrEmpiricalDistFunc>();
