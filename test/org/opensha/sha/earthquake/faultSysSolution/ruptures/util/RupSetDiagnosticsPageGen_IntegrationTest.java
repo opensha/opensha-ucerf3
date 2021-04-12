@@ -64,7 +64,6 @@ public class RupSetDiagnosticsPageGen_IntegrationTest {
 				"-name", inputName,
 				};
 
-		//instantiate the subclass and run its generatePage() method
 		cmd = parser.parse(options, args);		
 	}
 	
