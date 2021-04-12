@@ -62,6 +62,7 @@ import org.opensha.sha.magdist.SummedMagFreqDist;
 import scratch.UCERF3.AverageFaultSystemSolution;
 import scratch.UCERF3.FaultSystemRupSet;
 import scratch.UCERF3.FaultSystemSolution;
+import scratch.UCERF3.SlipEnabledRupSet;
 import scratch.UCERF3.SlipEnabledSolution;
 import scratch.UCERF3.analysis.CompoundFSSPlots;
 import scratch.UCERF3.analysis.FaultSpecificSegmentationPlotGen;
@@ -649,7 +650,7 @@ public class CommandLineInversionRunner {
 
 				// parent fault moment rates
 				ArrayList<ParentMomentRecord> parentMoRates = getSectionMoments(sol);
-				info += "\n\n****** Larges Moment Rate Discrepancies ******";
+				info += "\n\n****** Largest Moment Rate Discrepancies ******";
 				for (int i=0; i<10 && i<parentMoRates.size(); i++) {
 					ParentMomentRecord p = parentMoRates.get(i);
 					info += "\n"+p.parentID+". "+p.name+"\ttarget: "+p.targetMoment
@@ -1087,10 +1088,10 @@ public class CommandLineInversionRunner {
 		return new File(dir, getSAFSegPrefix(prefix, 7.5, false)+".png").exists();
 	}
 
-	private static ArrayList<ParentMomentRecord> getSectionMoments(InversionFaultSystemSolution sol) {
+	public static ArrayList<ParentMomentRecord> getSectionMoments(SlipEnabledSolution sol) {
 		HashMap<Integer, ParentMomentRecord> map = Maps.newHashMap();
 		
-		InversionFaultSystemRupSet rupSet = sol.getRupSet();
+		SlipEnabledRupSet rupSet = sol.getRupSet();
 
 		for (int sectIndex=0; sectIndex<rupSet.getNumSections(); sectIndex++) {
 			FaultSection sect = rupSet.getFaultSectionData(sectIndex);
@@ -1118,11 +1119,12 @@ public class CommandLineInversionRunner {
 		return recs;
 	}
 
-	private static class ParentMomentRecord implements Comparable<ParentMomentRecord> {
-		int parentID;
-		String name;
-		double targetMoment;
-		double solutionMoment;
+	public static class ParentMomentRecord implements Comparable<ParentMomentRecord> {
+		public int parentID;
+		public String name;
+		public double targetMoment;
+		public double solutionMoment;
+
 		public ParentMomentRecord(int parentID, String name,
 				double targetMoment, double solutionMoment) {
 			super();
@@ -1134,6 +1136,7 @@ public class CommandLineInversionRunner {
 		public double getDiff() {
 			return targetMoment - solutionMoment;
 		}
+
 		@Override
 		public int compareTo(ParentMomentRecord o) {
 			return Double.compare(Math.abs(getDiff()), Math.abs(o.getDiff()));
