@@ -741,8 +741,8 @@ public class RupSetDiagnosticsPageGen {
 					headings.add(null);
 				else
 					headings.add("From the primary rupture set ("+inputName+"):");
-				scalarValsList.add(inputScalars.getValues()); //TODO: is this line OK , see #760 below 
-
+				scalarValsList.add(inputScalars.getValues());
+				
 				prefixes.add("hist_rup");
 				rupSets.add(inputRupSet);
 				if (compRupSet != null) {
