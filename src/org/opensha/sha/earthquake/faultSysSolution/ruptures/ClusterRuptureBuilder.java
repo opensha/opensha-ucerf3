@@ -1161,7 +1161,7 @@ public class ClusterRuptureBuilder {
 		boolean plausibleConnections = true;	// PREF: true
 		// if >0 and <maxDist, connections will only be added above this distance when no other connections exist from
 		// a given subsection. e.g., if set to 5, you can jump more than 5 km but only if no <= 5km jumps exist
-		double adaptiveMinDist = 6d;			// PREF: 0	MOD
+		double adaptiveMinDist = 6d;			// PREF: 6
 		// GROWING STRATEGY
 		// if nonzero, apply thinning to growing strategy
 		float adaptiveSectFract = 0.05f;		// PREF: 0.05
